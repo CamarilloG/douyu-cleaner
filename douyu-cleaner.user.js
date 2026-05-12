@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/yourname/douyu-cleaner
-// @version      2.12.0
+// @version      2.13.0
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       you
 // @match        *://*.douyu.com/*
@@ -96,6 +96,15 @@
         //   'native' — 显示斗鱼原生弹幕，不 spawn 自建
         //   'off'    — 都隐藏
         danmuMode: 'custom',
+        // v2.13: 用户偏好的画质档位文本（如 "蓝光4M"）。null = 自动选最高
+        quality: null,
+        // v2.13: 自建飞行弹幕的可调参数
+        danmuOpacity: 1.0,    // 0.2 ~ 1.0
+        danmuFontSize: 22,    // 14 ~ 36 px
+        danmuDuration: 8,     // 4 ~ 14 秒 / 条
+        danmuLanes: 10,       // 4 ~ 20 行
+        danmuArea: 100,       // 25 ~ 100 %（屏高占比）
+        danmuShowNick: true,  // 自建飞行弹幕是否显示用户名（含冒号前缀）
     };
     const DANMU_MODES = ['custom', 'native', 'off'];
     const DANMU_MODE_TIPS = {
@@ -229,15 +238,16 @@
             position: absolute;
             left: 0;
             white-space: nowrap;
-            font-size: 22px;
+            font-size: var(--dy-fly-font, 22px);
             line-height: 1;
             font-weight: 500;
             color: #fff;
+            opacity: var(--dy-fly-opacity, 1);
             text-shadow: 0 0 4px #000, 1px 1px 2px rgba(0,0,0,0.85), -1px -1px 2px rgba(0,0,0,0.85);
             font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
             will-change: transform;
             /* 动画由 JS Web Animations API 控制（动态算 layer 宽度 + item 宽度），
-               这里只设置基础样式 */
+               这里只设置基础样式。字号/不透明度走 CSS 变量（v2.13） */
         }
         .dy-fly-item .dy-fly-nick{ margin-right: 6px; }
         /* ⭐ v2.12 弹幕 3 态开关 (custom / native / off)：
@@ -349,6 +359,85 @@
             width: 12px; height: 12px; border-radius: 50%; background: #fff;
             cursor: pointer;
         }
+
+        /* === v2.13 Popover 基础（画质 / 弹幕设置共用） === */
+        #dy-shell-controlbar .dy-quality-btn{
+            width: auto; padding: 0 10px; font-size: 13px;
+        }
+        #dy-shell-controlbar .dy-quality-btn .dy-quality-label{
+            white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis;
+        }
+        #dy-shell-controlbar .dy-popover-anchor{
+            position: relative;
+            display: inline-flex; align-items: center;
+        }
+        #dy-shell-controlbar .dy-popover{
+            position: absolute;
+            right: 0;
+            bottom: 44px;
+            background: #13141a;
+            color: #e6e6e6;
+            border: 1px solid #2a2c33;
+            border-radius: 6px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+            padding: 6px 0;
+            min-width: 120px;
+            z-index: 12;
+        }
+        #dy-shell-controlbar .dy-popover[hidden]{ display: none; }
+        /* 列表型 popover（画质） */
+        .dy-quality-list{ list-style: none; margin: 0; padding: 0; }
+        .dy-quality-list li{
+            padding: 6px 14px;
+            cursor: pointer;
+            font-size: 13px; line-height: 1.4;
+            transition: background 0.12s;
+        }
+        .dy-quality-list li:hover{ background: rgba(255,255,255,0.12); }
+        .dy-quality-list li.dy-active{ color: #27c93f; }
+        .dy-quality-list li.dy-active::before{ content: "✓ "; }
+        .dy-pop-empty{
+            padding: 8px 14px; font-size: 12px; color: #8a93a0; font-style: italic;
+        }
+        /* 滑块行（弹幕设置） */
+        .dy-danmu-pop{ min-width: 260px; padding-bottom: 8px; }
+        .dy-pop-title{
+            padding: 8px 14px 6px; font-size: 11px; color: #8a93a0;
+            letter-spacing: 0.5px; text-transform: uppercase;
+            border-bottom: 1px solid #1f2127; margin-bottom: 4px;
+        }
+        .dy-pop-row{
+            display: flex; align-items: center; gap: 10px;
+            padding: 5px 14px; font-size: 12px;
+        }
+        .dy-pop-row > label{
+            flex: 0 0 64px; color: #8a93a0;
+        }
+        .dy-pop-row input[type="range"]{
+            flex: 1 1 auto; min-width: 110px;
+        }
+        .dy-pop-row .dy-pop-val{
+            flex: 0 0 44px; text-align: right;
+            color: #e6e6e6; font-variant-numeric: tabular-nums;
+        }
+        .dy-pop-row.dy-pop-toggle{ padding-top: 8px; }
+        .dy-pop-row.dy-pop-toggle > label{ flex: 1 1 auto; color: #e6e6e6; }
+        .dy-pop-row.dy-pop-toggle input[type="checkbox"]{
+            flex: 0 0 auto; width: 16px; height: 16px;
+            accent-color: #27c93f; cursor: pointer; margin: 0;
+        }
+        /* danmuMode != custom 时 settings 主体灰显（仅 body 失效，提示文案仍可见） */
+        .dy-danmu-pop-body{ transition: opacity 0.18s; }
+        #dy-shell:not([data-danmu-mode="custom"]) .dy-danmu-pop-body{
+            opacity: 0.45; pointer-events: none;
+        }
+        .dy-danmu-pop-tip{
+            display: none;
+            padding: 6px 14px; font-size: 11px; color: #ffb74d;
+            background: rgba(255,183,77,0.08);
+            border-top: 1px solid #2a2c33; margin-top: 4px;
+        }
+        #dy-shell:not([data-danmu-mode="custom"]) .dy-danmu-pop-tip{ display: block; }
 
         #dy-shell-controlbar{ overflow: visible !important; }
 
@@ -704,11 +793,9 @@
      * 永远为 0 条。我们靠 ChatPanel 已在镜像的 .Barrage-list 数据，把每条
      * 弹幕复刻成 absolute DOM 节点，CSS animation 从右往左飞 8 秒。
      * ================================================================ */
-    const FLY_LANE_COUNT = 10;       // 屏幕同时几行飞行弹幕
-    const FLY_LANE_HEIGHT = 36;      // 每行高度（与字号匹配）
+    // v2.13: 以下参数由 prefs 驱动（spawnFlyingDanmu 每次读取），仅保留性能护栏为常量
     const FLY_TOP_OFFSET = 8;        // 距视频区顶部
-    const FLY_DURATION_SEC = 8;      // 每条弹幕飞行多少秒
-    const FLY_MAX_ALIVE = 60;        // 同时最多多少条飞行弹幕
+    const FLY_MAX_ALIVE = 60;        // 同时最多多少条飞行弹幕（性能护栏，不开放给用户）
     let flyLaneCursor = 0;
 
     // v2.12: 不再自动检测原生渲染状态。改用 prefs.danmuMode 让用户显式选择
@@ -723,15 +810,25 @@
         while (layer.children.length > FLY_MAX_ALIVE) {
             layer.removeChild(layer.firstChild);
         }
+        // v2.13: 动态读取用户设置
+        const laneCount = Math.max(1, prefs.danmuLanes | 0);
+        const duration = Math.max(1, +prefs.danmuDuration || 8);
+        const areaPct = Math.max(10, Math.min(100, +prefs.danmuArea || 100)) / 100;
+        const fontPx = Math.max(10, +prefs.danmuFontSize || 22);
+        // 行高跟字号 + 区域占比联动：可视区高 = layer.clientHeight * areaPct
+        const visibleH = Math.max(40, (layer.clientHeight || 400) * areaPct - FLY_TOP_OFFSET);
+        const laneHeight = Math.max(fontPx + 6, visibleH / laneCount);
+
         const item = document.createElement('div');
         item.className = 'dy-fly-item';
-        item.innerHTML =
-            `<span class="dy-fly-nick" style="color:${parsed.nickColor}">${escapeHtml(parsed.nick)}:</span>` +
-            `<span style="color:${parsed.textColor}">${escapeHtml(parsed.text)}</span>`;
+        const nickHtml = prefs.danmuShowNick
+            ? `<span class="dy-fly-nick" style="color:${parsed.nickColor}">${escapeHtml(parsed.nick)}:</span>`
+            : '';
+        item.innerHTML = nickHtml + `<span style="color:${parsed.textColor}">${escapeHtml(parsed.text)}</span>`;
         // 分配 lane（循环复用）
-        const lane = flyLaneCursor;
-        flyLaneCursor = (flyLaneCursor + 1) % FLY_LANE_COUNT;
-        item.style.top = (FLY_TOP_OFFSET + lane * FLY_LANE_HEIGHT) + 'px';
+        const lane = flyLaneCursor % laneCount;
+        flyLaneCursor = (flyLaneCursor + 1) % laneCount;
+        item.style.top = (FLY_TOP_OFFSET + lane * laneHeight) + 'px';
         layer.appendChild(item);
         // 用 Web Animations API 控制：layer 全宽度起点 → item 完全出屏左侧
         // 这样比 CSS `transform: translate(100%)` 精确（100% 是自身宽度而非容器宽）
@@ -742,11 +839,11 @@
                 { transform: `translate3d(${layerW}px, 0, 0)` },
                 { transform: `translate3d(${-itemW}px, 0, 0)` }
             ],
-            { duration: FLY_DURATION_SEC * 1000, fill: 'forwards', easing: 'linear' }
+            { duration: duration * 1000, fill: 'forwards', easing: 'linear' }
         );
         anim.onfinish = () => item.remove();
-        // 兜底（如果浏览器 tab 切到后台 animation 暂停，10s 后强制清掉）
-        setTimeout(() => item.remove(), (FLY_DURATION_SEC + 2) * 1000);
+        // 兜底（如果浏览器 tab 切到后台 animation 暂停，duration+2s 后强制清掉）
+        setTimeout(() => item.remove(), (duration + 2) * 1000);
     };
 
     /* ================================================================
@@ -778,8 +875,54 @@
                         <button class="dy-btn" data-act="mute" title="静音切换">${SVG.volumeOn}</button>
                         <input class="dy-vol-slider" type="range" min="0" max="100" value="50" />
                     </span>
+                    <span class="dy-popover-anchor">
+                        <button class="dy-btn dy-quality-btn" data-act="quality" title="画质">
+                            <span class="dy-quality-label">画质</span>
+                        </button>
+                        <div class="dy-popover dy-quality-pop" hidden>
+                            <ul class="dy-quality-list"></ul>
+                        </div>
+                    </span>
                     <div class="dy-spacer"></div>
                     <button class="dy-btn" data-act="danmu-toggle" title="视频弹幕开关 (D)">${SVG.danmu}</button>
+                    <span class="dy-popover-anchor">
+                        <button class="dy-btn" data-act="danmu-settings" title="弹幕设置">${SVG.settings}</button>
+                        <div class="dy-popover dy-danmu-pop" hidden>
+                            <div class="dy-pop-title">自建飞行弹幕</div>
+                            <div class="dy-danmu-pop-body">
+                                <div class="dy-pop-row" data-pop-key="danmuOpacity">
+                                    <label>不透明度</label>
+                                    <input type="range" min="20" max="100" step="5" />
+                                    <span class="dy-pop-val">100%</span>
+                                </div>
+                                <div class="dy-pop-row" data-pop-key="danmuFontSize">
+                                    <label>字号</label>
+                                    <input type="range" min="14" max="36" step="1" />
+                                    <span class="dy-pop-val">22px</span>
+                                </div>
+                                <div class="dy-pop-row" data-pop-key="danmuDuration">
+                                    <label>速度</label>
+                                    <input type="range" min="4" max="14" step="1" />
+                                    <span class="dy-pop-val">8s</span>
+                                </div>
+                                <div class="dy-pop-row" data-pop-key="danmuLanes">
+                                    <label>行数</label>
+                                    <input type="range" min="4" max="20" step="1" />
+                                    <span class="dy-pop-val">10</span>
+                                </div>
+                                <div class="dy-pop-row" data-pop-key="danmuArea">
+                                    <label>显示区域</label>
+                                    <input type="range" min="25" max="100" step="5" />
+                                    <span class="dy-pop-val">100%</span>
+                                </div>
+                                <div class="dy-pop-row dy-pop-toggle" data-pop-key="danmuShowNick">
+                                    <label>显示用户名</label>
+                                    <input type="checkbox" />
+                                </div>
+                            </div>
+                            <div class="dy-danmu-pop-tip">仅自建弹幕模式可调，按 D 切回自建</div>
+                        </div>
+                    </span>
                     <button class="dy-btn" data-act="collapse" title="折叠评论区">${SVG.chevronRight}</button>
                     <button class="dy-btn" data-act="fullscreen" title="全屏 (F)">${SVG.fullscreen}</button>
                 </div>
@@ -822,34 +965,90 @@
 
 
     /* ================================================================
-     * § 9. 自动最高画质
+     * § 9. 画质：自动 + 持久化偏好（v2.13）
+     *
+     * v2.13 改造：
+     *   - prefs.quality = null  → 自动按 QUALITY_PRIORITY 选最高
+     *   - prefs.quality = "蓝光4M" → 优先点击文本匹配的档位；未找到时 fallback 自动最高
+     *     （不清空 pref —— 换房间/账号可能恢复可用）
+     *   - 暴露 readQualities() / qualityIsActive() 给 popover + label 同步使用
      * ================================================================ */
-    const pickHighestQuality = async () => {
+    // 选中态判别（观测到斗鱼用 selected-XXXX；兼容 is-active / is-selected）
+    const qualityIsActive = (el) =>
+        /(^|\s)(selected|active|is-active|is-selected)[-_\s]/.test(' ' + ((el && el.className) || '').toString() + ' ');
+
+    // 读取当前 rate 下拉里的所有档位（每次现读，避免缓存失效）
+    const readQualities = () => {
+        const rate = document.querySelector(CFG.SEL_RATE);
+        if (!rate) return [];
+        return Array.from(rate.querySelectorAll('li'))
+            .map(li => ({
+                text: (li.textContent || '').trim(),
+                active: qualityIsActive(li),
+                nativeEl: li,
+            }))
+            .filter(q => q.text);
+    };
+
+    // 找当前激活档位文本（用于显示在按钮 label）
+    const currentActiveQuality = () => {
+        const list = readQualities();
+        const active = list.find(q => q.active);
+        return active ? active.text : null;
+    };
+
+    // 在当前 li 列表里找匹配某档位文本的 nativeEl（兜底：缓存失效时按文本重查）
+    const findQualityLi = (text) => {
+        if (!text) return null;
+        const list = readQualities();
+        return (list.find(q => q.text === text) ||
+                list.find(q => q.text.startsWith(text)) ||
+                null);
+    };
+
+    // 点击 li 切换画质（如果已激活则跳过）
+    const clickQualityLi = (q) => {
+        if (!q || !q.nativeEl) return false;
+        if (q.active) return true;
+        // 缓存的 nativeEl 可能已脱离 DOM：按文本兜底重查
+        const target = q.nativeEl.isConnected ? q : findQualityLi(q.text);
+        if (!target || !target.nativeEl) return false;
+        target.nativeEl.click();
+        return true;
+    };
+
+    // 应用画质偏好（替代原 pickHighestQuality）
+    const applyQualityPref = async () => {
         const rate = await waitFor(CFG.SEL_RATE, 20000);
         if (!rate) return false;
-        // 选中态：观测到斗鱼用 selected-XXXX（hash 后缀）。也兼容旧版的 is-active / is-selected。
-        const isActive = (el) => /(^|\s)(selected|active|is-active|is-selected)[-_\s]/.test(' ' + (el.className || '').toString() + ' ');
-        const tryClick = () => {
-            const items = Array.from(rate.querySelectorAll('li'));
+        const tryApply = () => {
+            const items = readQualities();
             if (!items.length) return false;
+            // 1) 用户偏好优先
+            if (prefs.quality) {
+                const target = items.find(q => q.text === prefs.quality) ||
+                               items.find(q => q.text.startsWith(prefs.quality));
+                if (target) {
+                    if (!target.active) target.nativeEl.click();
+                    return true;
+                }
+                // 找不到 → fallback 到自动最高（pref 保留）
+            }
+            // 2) 自动最高
             for (const q of CFG.QUALITY_PRIORITY) {
-                const item = items.find(li => {
-                    const t = (li.textContent || '').trim();
-                    return t === q || t.startsWith(q);
-                });
-                if (item) {
-                    if (isActive(item)) return true;
-                    item.click();
+                const target = items.find(it => it.text === q || it.text.startsWith(q));
+                if (target) {
+                    if (!target.active) target.nativeEl.click();
                     return true;
                 }
             }
             return false;
         };
-        if (tryClick()) return true;
+        if (tryApply()) return true;
         return new Promise(resolve => {
             let tries = 0;
             const tid = setInterval(() => {
-                const ok = tryClick();
+                const ok = tryApply();
                 tries++;
                 if (ok || tries > 6) { clearInterval(tid); resolve(ok); }
             }, 1500);
@@ -883,9 +1082,91 @@
             danmuBtn.classList.toggle('dy-off', mode === 'off');
             danmuBtn.classList.toggle('dy-mode-native', mode === 'native');
         }
+        // v2.13: 飞行弹幕 CSS 变量（字号 + 不透明度，直接驱动 .dy-fly-item）
+        if (shell.flyingLayer) {
+            shell.flyingLayer.style.setProperty('--dy-fly-opacity', String(prefs.danmuOpacity));
+            shell.flyingLayer.style.setProperty('--dy-fly-font', (prefs.danmuFontSize | 0) + 'px');
+        }
+        // v2.13: 弹幕设置 popover 内 slider + 值显示同步
+        syncDanmuPopValues();
+        // v2.13: 画质按钮 label
+        updateQualityLabel();
+    };
+
+    // v2.13: 把当前 prefs 推回弹幕设置 popover 的 slider + 数值显示
+    const DANMU_POP_FMT = {
+        danmuOpacity:  { read: () => Math.round(prefs.danmuOpacity * 100), fmt: v => v + '%' },
+        danmuFontSize: { read: () => prefs.danmuFontSize | 0,              fmt: v => v + 'px' },
+        danmuDuration: { read: () => +prefs.danmuDuration || 8,            fmt: v => v + 's' },
+        danmuLanes:    { read: () => prefs.danmuLanes | 0,                 fmt: v => String(v) },
+        danmuArea:     { read: () => prefs.danmuArea | 0,                  fmt: v => v + '%' },
+    };
+    const syncDanmuPopValues = () => {
+        if (!shell) return;
+        const pop = shell.controlbar && shell.controlbar.querySelector('.dy-danmu-pop');
+        if (!pop) return;
+        for (const key of Object.keys(DANMU_POP_FMT)) {
+            const row = pop.querySelector(`.dy-pop-row[data-pop-key="${key}"]`);
+            if (!row) continue;
+            const slider = row.querySelector('input[type="range"]');
+            const valEl  = row.querySelector('.dy-pop-val');
+            const cfg = DANMU_POP_FMT[key];
+            const cur = cfg.read();
+            if (slider && slider.value !== String(cur)) slider.value = String(cur);
+            if (valEl)  valEl.textContent = cfg.fmt(cur);
+        }
+        // 显示用户名 toggle 同步
+        const nickRow = pop.querySelector('.dy-pop-row[data-pop-key="danmuShowNick"]');
+        if (nickRow) {
+            const cb = nickRow.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = !!prefs.danmuShowNick;
+        }
+    };
+
+    // v2.13: 画质按钮 label 同步（不写 prefs，只反映显示状态）
+    const updateQualityLabel = () => {
+        if (!shell) return;
+        const lbl = shell.controlbar && shell.controlbar.querySelector('.dy-quality-label');
+        if (!lbl) return;
+        const active = currentActiveQuality();
+        lbl.textContent = active || prefs.quality || '画质';
     };
 
     const setPref = (k, v) => { prefs[k] = v; savePrefs(prefs); applyPrefs(); };
+
+    // v2.13: popover 控制（画质 + 弹幕设置共用）
+    const closeAllPopovers = () => {
+        if (!shell) return;
+        shell.controlbar.querySelectorAll('.dy-popover:not([hidden])').forEach(p => { p.hidden = true; });
+    };
+    const togglePopover = (pop) => {
+        if (!pop) return;
+        const wasOpen = !pop.hidden;
+        closeAllPopovers();
+        if (wasOpen) return;                          // 再次点击 → 关闭
+        pop.hidden = false;
+    };
+    const refreshQualityList = () => {
+        if (!shell) return;
+        const ul = shell.controlbar.querySelector('.dy-quality-list');
+        if (!ul) return;
+        const items = readQualities();
+        ul.innerHTML = '';
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'dy-pop-empty';
+            empty.textContent = '画质列表加载中…';
+            ul.appendChild(empty);
+            return;
+        }
+        for (const q of items) {
+            const li = document.createElement('li');
+            li.textContent = q.text;
+            if (q.active) li.classList.add('dy-active');
+            li.dataset.qualityText = q.text;
+            ul.appendChild(li);
+        }
+    };
 
     const bindControls = () => {
         if (!shell) return;
@@ -894,6 +1175,18 @@
 
         // === Controlbar 按钮事件代理 ===
         cb.addEventListener('click', (e) => {
+            // v2.13: 画质列表点击优先于按钮代理
+            const qLi = e.target.closest('.dy-quality-list li[data-quality-text]');
+            if (qLi) {
+                const text = qLi.dataset.qualityText;
+                if (text) {
+                    setPref('quality', text);
+                    const target = findQualityLi(text);
+                    if (target) clickQualityLi(target);
+                    closeAllPopovers();
+                }
+                return;
+            }
             const btn = e.target.closest('.dy-btn[data-act]');
             if (!btn) return;
             const act = btn.dataset.act;
@@ -914,11 +1207,23 @@
                     setPref('muted', !prefs.muted);
                     break;
                 }
+                case 'quality': {
+                    const pop = cb.querySelector('.dy-quality-pop');
+                    if (!pop) break;
+                    if (pop.hidden) refreshQualityList();  // 开时刷新
+                    togglePopover(pop, btn);
+                    break;
+                }
                 case 'danmu-toggle': {
                     // v2.12: 循环 custom → native → off → custom
                     const cur = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'custom';
                     const next = DANMU_MODES[(DANMU_MODES.indexOf(cur) + 1) % DANMU_MODES.length];
                     setPref('danmuMode', next);
+                    break;
+                }
+                case 'danmu-settings': {
+                    const pop = cb.querySelector('.dy-danmu-pop');
+                    togglePopover(pop, btn);
                     break;
                 }
                 case 'collapse': {
@@ -964,18 +1269,70 @@
             });
         }
 
+        // === v2.13 弹幕设置 popover：slider + checkbox 事件代理 ===
+        const danmuPop = cb.querySelector('.dy-danmu-pop');
+        if (danmuPop) {
+            danmuPop.addEventListener('input', (e) => {
+                const row = e.target.closest('.dy-pop-row[data-pop-key]');
+                if (!row) return;
+                const key = row.dataset.popKey;
+                if (e.target.type === 'checkbox') {
+                    if (key === 'danmuShowNick') setPref('danmuShowNick', !!e.target.checked);
+                    return;
+                }
+                const raw = +e.target.value;
+                if (!Number.isFinite(raw)) return;
+                if (key === 'danmuOpacity') setPref('danmuOpacity', Math.max(0.2, Math.min(1, raw / 100)));
+                else if (key === 'danmuFontSize') setPref('danmuFontSize', Math.max(10, Math.min(48, raw | 0)));
+                else if (key === 'danmuDuration') setPref('danmuDuration', Math.max(2, Math.min(30, raw | 0)));
+                else if (key === 'danmuLanes')    setPref('danmuLanes',    Math.max(1, Math.min(30, raw | 0)));
+                else if (key === 'danmuArea')     setPref('danmuArea',     Math.max(10, Math.min(100, raw | 0)));
+            });
+            // 阻止 popover 内的点击冒泡到 document（避免立刻被 outside-click 关闭）
+            danmuPop.addEventListener('mousedown', (e) => e.stopPropagation());
+        }
+        const qualityPop = cb.querySelector('.dy-quality-pop');
+        if (qualityPop) {
+            qualityPop.addEventListener('mousedown', (e) => e.stopPropagation());
+        }
+
         // === Shell 上的展开按钮（折叠态露出） ===
         if (shell.expandBtn) {
             shell.expandBtn.addEventListener('click', () => setPref('chatCollapsed', false));
         }
 
+        // === v2.13 文档级点击：popover 外点击关闭 ===
+        if (!window.__dyV2DocClose) {
+            window.__dyV2DocClose = true;
+            document.addEventListener('mousedown', (e) => {
+                if (!shell) return;
+                if (e.target.closest('.dy-popover')) return;
+                if (e.target.closest('[data-act="quality"], [data-act="danmu-settings"]')) return;
+                closeAllPopovers();
+            });
+        }
+
+        // === v2.13 监听原生 rate 下拉的 class 变化，实时同步画质 label ===
+        const setupRateObserver = async () => {
+            const rate = await waitFor(CFG.SEL_RATE, 30000);
+            if (!rate || !shell) return;
+            if (shell._rateOb) try { shell._rateOb.disconnect(); } catch (e) {}
+            const ob = new MutationObserver(() => updateQualityLabel());
+            ob.observe(rate, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
+            shell._rateOb = ob;
+            updateQualityLabel();
+        };
+        setupRateObserver();
+
         // === 鼠标静置自动隐藏 UI ===
         let hideTimer = null;
+        const popoverOpen = () => !!cb.querySelector('.dy-popover:not([hidden])');
         const scheduleHide = () => {
             clearTimeout(hideTimer);
             hideTimer = setTimeout(() => {
                 if (!shell) return;
                 if (cb.matches(':hover')) return;
+                if (popoverOpen()) return;            // v2.13: popover 打开期间不隐藏
                 shell.root.classList.remove('dy-ui-active');
             }, CFG.UI_IDLE_HIDE_MS);
         };
@@ -987,6 +1344,7 @@
         const hideUINow = () => {
             if (!shell) return;
             clearTimeout(hideTimer);
+            closeAllPopovers();                       // v2.13: UI 强制隐藏时一并关 popover
             shell.root.classList.remove('dy-ui-active');
         };
         shell.videoHost.addEventListener('mousemove', showUI);
@@ -1010,6 +1368,13 @@
             window.__dyV2Keys = true;
             document.addEventListener('keydown', (e) => {
                 if (!shell) return;
+                // v2.13: ESC 优先关 popover（且阻止冒泡到浏览器退出全屏）
+                if (e.code === 'Escape' && shell.controlbar.querySelector('.dy-popover:not([hidden])')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeAllPopovers();
+                    return;
+                }
                 const tag = (e.target.tagName || '').toLowerCase();
                 if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
                 const vid = v();
@@ -1153,10 +1518,10 @@
         await movePlayerIntoShell();
         bindControls();
         bindChat();
-        pickHighestQuality();
+        applyQualityPref();
         startLatencyChase();
         releaseFlight();
-        console.log('[Douyu Cleaner] v2.12 shell mounted ✓');
+        console.log('[Douyu Cleaner] v2.13 shell mounted ✓');
         // 诊断：mount 完成后 2s 报告弹幕容器状态，方便排查"弹幕没显示"
         setTimeout(() => {
             const comment = document.querySelector('[class*="comment-"]:not([class*="sendComment"])');
@@ -1184,6 +1549,7 @@
         originalPlayerParent = null;
         originalPlayerNext = null;
         if (chat) { chat.destroy(); chat = null; }
+        if (shell && shell._rateOb) { try { shell._rateOb.disconnect(); } catch (e) {} }
         if (shell && shell.root) shell.root.remove();
         shell = null;
     };
@@ -1293,5 +1659,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.12.0 已加载（弹幕 3 态：自建 / 原生 / 关闭）');
+    console.log('[Douyu Cleaner] v2.13.0 已加载（新增：画质切换 + 弹幕设置）');
 })();
