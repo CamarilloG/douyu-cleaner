@@ -60,8 +60,6 @@
         SEL_CHAT_INPUT: '.ChatSend-txt',
         SEL_CHAT_SEND: '.ChatSend-button',
         CHAT_WIDTH: 350,
-        LATENCY_THRESHOLD: 3.0,
-        LATENCY_TARGET: 0.5,
         LATENCY_CHECK_MS: 2000,
         MAX_MESSAGES: 200,
         NEAR_BOTTOM_PX: 24,
@@ -76,6 +74,7 @@
         reload: '<svg fill="none" viewBox="0 0 32 32"><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.383 9.9a9 9 0 0115.396 8.086.194.194 0 01-.33.09l-1.781-1.843M22.619 22.1a9 9 0 01-15.396-8.087.194.194 0 01.33-.088l1.781 1.841"/></g></svg>',
         volumeOn: '<svg fill="none" viewBox="0 0 32 32"><path d="M5 10h5.5L16 6v20l-5.5-4H5V10z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21.736 23.517a8 8 0 00-.527-15.206M19.687 19.867a3.925 3.925 0 00-.258-7.46" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
         volumeMuted: '<svg fill="none" viewBox="0 0 32 32"><path d="M5 10h5.5L16 6v20l-5.5-4H5V10z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 19l6-6M20 13l6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+        realtime: '<svg fill="none" viewBox="0 0 32 32"><path d="M7 18a9 9 0 1118 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 18l5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M11 23h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
         danmu: '<svg fill="none" viewBox="0 0 32 32"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 7h18v18H7z"/><path d="M11.684 14.773l-.182 1.755h2.6c0 2.236-.078 3.731-.208 4.485-.156.754-.819 1.17-2.002 1.248-.338 0-.676-.026-1.04-.052l-.351-1.261a9.39 9.39 0 001.066.065c.65 0 1.014-.208 1.105-.624.091-.416.143-1.313.143-2.691h-2.691l.364-4.082h2.197v-1.69h-2.444v-1.157h3.783v4.004h-2.34zm3.198-2.457h1.56a9.991 9.991 0 00-.975-1.612l1.235-.416c.364.52.689 1.066.962 1.664l-.819.364h1.794a16.82 16.82 0 00.962-2.132l1.287.455c-.26.624-.559 1.183-.884 1.677h1.508v5.473h-2.678v1.001h3.185v1.274h-3.185v2.327h-1.326v-2.327h-3.094V18.79h3.094v-1.001h-2.626v-5.473zm5.434 4.342v-1.014h-1.482v1.014h1.482zm-2.808 0v-1.014h-1.417v1.014h1.417zm-1.417-2.132h1.417V13.46h-1.417v1.066zm2.743-1.066v1.066h1.482V13.46h-1.482z" fill="currentColor"/></svg>',
         settings: '<svg fill="none" viewBox="0 0 32 32"><path fill-rule="evenodd" clip-rule="evenodd" d="M11.023 14.758a.5.5 0 00.079-.499l-1.609-4.118a.5.5 0 01.648-.647l4.118 1.608a.5.5 0 00.498-.079l3.42-2.802a.5.5 0 01.816.416l-.258 4.413a.5.5 0 00.23.45l3.721 2.386a.493.493 0 01.225.492c.642.265 1.216.66 1.69 1.152.593-1.076.373-2.554-.835-3.328l-2.983-1.912.206-3.537c.127-2.175-2.395-3.46-4.08-2.079l-2.74 2.246-3.3-1.29c-2.03-.792-4.031 1.21-3.239 3.24l1.29 3.299-2.246 2.74c-1.381 1.685-.096 4.207 2.079 4.08l3.537-.206 1.912 2.983c.775 1.209 2.254 1.429 3.33.834a5.007 5.007 0 01-1.152-1.689.493.493 0 01-.495-.225L13.5 18.965a.5.5 0 00-.45-.23l-4.414.258a.5.5 0 01-.415-.816l2.802-3.42z" fill="currentColor"/><path d="M24.812 6.507a.2.2 0 01.376 0l.59 1.596a.2.2 0 00.119.119l1.596.59a.2.2 0 010 .376l-1.596.59a.2.2 0 00-.119.119l-.59 1.596a.2.2 0 01-.376 0l-.59-1.596a.2.2 0 00-.119-.119l-1.596-.59a.2.2 0 010-.376l1.596-.59a.2.2 0 00.119-.119l.59-1.596zM9.906 22.253a.1.1 0 01.188 0l.43 1.164a.1.1 0 00.06.059l1.162.43a.1.1 0 010 .188l-1.163.43a.1.1 0 00-.059.06l-.43 1.163a.1.1 0 01-.188 0l-.43-1.164a.1.1 0 00-.06-.059l-1.163-.43a.1.1 0 010-.188l1.164-.43a.1.1 0 00.059-.06l.43-1.163z" fill="currentColor"/><path d="M21 17a4 4 0 100 8 4 4 0 100-8zM19 19l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         webFullscreen: '<svg fill="none" viewBox="0 0 32 32"><path d="M20 25h6v-6M14 7H8v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 12L8 7M26 25l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
@@ -91,6 +90,9 @@
         volume: 0.5,
         muted: false,
         chatCollapsed: false,
+        realtimeEnabled: true,
+        latencyMaxSec: 3,
+        latencyTargetSec: 0.5,
         // v2.12: 3 态弹幕开关，替换原 danmuVisible（true/false）
         //   'custom' — 显示自建飞行弹幕，隐藏原生（避免双倍）
         //   'native' — 显示斗鱼原生弹幕，不 spawn 自建
@@ -127,6 +129,17 @@
         try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch (e) { /* quota */ }
     };
     let prefs = loadPrefs();
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    const finiteOr = (n, fallback) => Number.isFinite(Number(n)) ? Number(n) : fallback;
+    const normalizeLatencyPrefs = () => {
+        prefs.realtimeEnabled = prefs.realtimeEnabled !== false;
+        prefs.latencyMaxSec = clamp(finiteOr(prefs.latencyMaxSec, DEFAULT_PREFS.latencyMaxSec), 0.5, 10);
+        prefs.latencyTargetSec = clamp(finiteOr(prefs.latencyTargetSec, DEFAULT_PREFS.latencyTargetSec), 0.1, 3);
+        prefs.latencyTargetSec = Math.min(prefs.latencyTargetSec, Math.max(0.1, prefs.latencyMaxSec - 0.1));
+        prefs.latencyMaxSec = Math.round(prefs.latencyMaxSec * 10) / 10;
+        prefs.latencyTargetSec = Math.round(prefs.latencyTargetSec * 10) / 10;
+    };
+    normalizeLatencyPrefs();
 
     /* ================================================================
      * § 2. 广告黑名单（v1.5 沿用 + 兜底）
@@ -300,7 +313,7 @@
             overflow: hidden;
         }
 
-        /* === Controlbar：默认隐藏，dy-ui-active / settings 打开时显示 === */
+        /* === Controlbar：默认隐藏，dy-ui-active / popover 或插件控制台打开时显示 === */
         #dy-shell-controlbar{
             position:absolute;
             left:0; right:0; bottom:0;
@@ -314,7 +327,8 @@
             z-index: 11;
             color:#e6e6e6;
         }
-        #dy-shell.dy-ui-active #dy-shell-controlbar{
+        #dy-shell.dy-ui-active #dy-shell-controlbar,
+        #dy-shell.dy-plugin-open #dy-shell-controlbar{
             opacity:1; transform: translateY(0);
             pointer-events:auto;
         }
@@ -322,7 +336,8 @@
         #dy-shell-video{ cursor: none; }
         #dy-shell.dy-ui-active #dy-shell-video{ cursor: default; }
         #dy-shell-controlbar, #dy-shell-controlbar *,
-        #dy-chat-expand-btn{ cursor: default; }
+        #dy-chat-expand-btn,
+        #dy-plugin-panel, #dy-plugin-panel *{ cursor: default; }
         #dy-shell-controlbar .dy-btn{
             background: none; border: none; color: #e6e6e6;
             font-size: 18px; line-height: 1;
@@ -337,6 +352,7 @@
         }
         #dy-shell-controlbar .dy-btn:hover{ background: rgba(255,255,255,0.12); color:#fff; }
         #dy-shell-controlbar .dy-btn.dy-off{ color: rgba(255,255,255,0.4); }
+        #dy-shell-controlbar .dy-btn.dy-active{ color:#4a90e2; }
         #dy-shell-controlbar .dy-spacer{ flex:1 1 auto; }
         #dy-shell-controlbar .dy-vol-wrap{
             display:flex; align-items:center; gap:6px;
@@ -440,6 +456,88 @@
         #dy-shell:not([data-danmu-mode="custom"]) .dy-danmu-pop-tip{ display: block; }
 
         #dy-shell-controlbar{ overflow: visible !important; }
+
+        /* === 插件控制台：直播延迟 === */
+        #dy-plugin-panel{
+            position:absolute;
+            right:14px; bottom:58px;
+            width:310px;
+            background:rgba(18,20,26,0.96);
+            color:#e6e6e6;
+            border:1px solid rgba(255,255,255,0.12);
+            border-radius:6px;
+            box-shadow:0 12px 36px rgba(0,0,0,0.45);
+            z-index:12;
+            padding:12px;
+            display:none;
+            font-size:12px;
+        }
+        #dy-shell.dy-plugin-open #dy-plugin-panel{ display:block; }
+        #dy-plugin-panel .dy-plugin-head{
+            display:flex; align-items:center; justify-content:space-between;
+            color:#fff; font-weight:600; margin-bottom:12px;
+        }
+        #dy-plugin-panel .dy-plugin-close{
+            background:none; border:none; color:#8a93a0;
+            width:24px; height:24px; border-radius:4px;
+            display:inline-flex; align-items:center; justify-content:center;
+            cursor:pointer; font-size:18px; line-height:1;
+        }
+        #dy-plugin-panel .dy-plugin-close:hover{ color:#fff; background:rgba(255,255,255,0.1); }
+        #dy-plugin-panel .dy-plugin-section{
+            border-top:1px solid rgba(255,255,255,0.08);
+            padding-top:10px;
+        }
+        #dy-plugin-panel .dy-plugin-section-title{
+            color:#8a93a0; margin-bottom:10px;
+        }
+        #dy-plugin-panel .dy-plugin-row{
+            display:grid;
+            grid-template-columns:72px minmax(0,1fr) 58px;
+            align-items:center;
+            gap:8px;
+            margin:10px 0;
+        }
+        #dy-plugin-panel .dy-plugin-row label{ color:#c8ccd3; }
+        #dy-plugin-panel .dy-plugin-row input[type="number"]{
+            width:58px; box-sizing:border-box;
+            background:#22252c; border:1px solid #343842; border-radius:4px;
+            color:#e6e6e6; padding:5px 6px; font-size:12px;
+        }
+        #dy-plugin-panel .dy-plugin-row input[type="number"]:focus{
+            outline:none; border-color:#4a90e2;
+        }
+        #dy-plugin-panel input[type="range"]{
+            -webkit-appearance:none; appearance:none;
+            width:100%; height:4px; background:rgba(255,255,255,0.25);
+            border-radius:2px; outline:none; cursor:pointer;
+        }
+        #dy-plugin-panel input[type="range"]::-webkit-slider-thumb{
+            -webkit-appearance:none; appearance:none;
+            width:12px; height:12px; border-radius:50%; background:#fff;
+            cursor:pointer;
+        }
+        #dy-plugin-panel .dy-plugin-toggle{
+            display:flex; align-items:center; justify-content:space-between;
+            gap:10px; margin-bottom:8px;
+        }
+        #dy-plugin-panel .dy-plugin-switch{
+            position:relative; width:38px; height:20px;
+        }
+        #dy-plugin-panel .dy-plugin-switch input{
+            position:absolute; inset:0; opacity:0; cursor:pointer;
+        }
+        #dy-plugin-panel .dy-plugin-switch span{
+            position:absolute; inset:0; border-radius:999px;
+            background:#3a3d45; transition:background 0.15s;
+        }
+        #dy-plugin-panel .dy-plugin-switch span::after{
+            content:""; position:absolute; width:16px; height:16px;
+            left:2px; top:2px; border-radius:50%; background:#fff;
+            transition:transform 0.15s;
+        }
+        #dy-plugin-panel .dy-plugin-switch input:checked + span{ background:#4a90e2; }
+        #dy-plugin-panel .dy-plugin-switch input:checked + span::after{ transform:translateX(18px); }
 
         /* === 折叠按钮（chat panel 顶部 + shell 右上悬浮） === */
         #dy-chat-collapse-btn{
@@ -868,6 +966,32 @@
                     <span class="dy-status-dot">●</span><span class="dy-status-text">等待</span><span class="dy-status-lag"></span>
                 </div>
                 <button id="dy-chat-expand-btn" title="展开评论区">${SVG.chevronLeft}<span>评论</span></button>
+                <div id="dy-plugin-panel">
+                    <div class="dy-plugin-head">
+                        <span>插件控制台</span>
+                        <button class="dy-plugin-close" data-act="plugin-close" title="关闭">×</button>
+                    </div>
+                    <div class="dy-plugin-section">
+                        <div class="dy-plugin-section-title">直播延迟</div>
+                        <div class="dy-plugin-toggle">
+                            <span>实时模式</span>
+                            <label class="dy-plugin-switch" title="自动追帧">
+                                <input type="checkbox" data-pref="realtimeEnabled" />
+                                <span></span>
+                            </label>
+                        </div>
+                        <div class="dy-plugin-row">
+                            <label for="dy-latency-max">最大延迟</label>
+                            <input id="dy-latency-max" type="range" min="0.5" max="10" step="0.1" data-pref="latencyMaxSec" />
+                            <input type="number" min="0.5" max="10" step="0.1" data-pref="latencyMaxSec" aria-label="最大延迟秒数" />
+                        </div>
+                        <div class="dy-plugin-row">
+                            <label for="dy-latency-target">追帧目标</label>
+                            <input id="dy-latency-target" type="range" min="0.1" max="3" step="0.1" data-pref="latencyTargetSec" />
+                            <input type="number" min="0.1" max="3" step="0.1" data-pref="latencyTargetSec" aria-label="追帧目标秒数" />
+                        </div>
+                    </div>
+                </div>
                 <div id="dy-shell-controlbar">
                     <button class="dy-btn" data-act="play" title="暂停/继续 (Space)">${SVG.play}</button>
                     <button class="dy-btn" data-act="refresh" title="刷新（追到实时）">${SVG.reload}</button>
@@ -884,6 +1008,8 @@
                         </div>
                     </span>
                     <div class="dy-spacer"></div>
+                    <button class="dy-btn" data-act="realtime-toggle" title="实时模式">${SVG.realtime}</button>
+                    <button class="dy-btn" data-act="plugin-settings" title="插件设置">${SVG.settings}</button>
                     <button class="dy-btn" data-act="danmu-toggle" title="视频弹幕开关 (D)">${SVG.danmu}</button>
                     <span class="dy-popover-anchor">
                         <button class="dy-btn" data-act="danmu-settings" title="弹幕设置">${SVG.settings}</button>
@@ -936,6 +1062,7 @@
             chatHost: root.querySelector('#dy-shell-chat'),
             statusEl: root.querySelector('#dy-shell-status'),
             controlbar: root.querySelector('#dy-shell-controlbar'),
+            pluginPanel: root.querySelector('#dy-plugin-panel'),
             flyingLayer: root.querySelector('#dy-flying-layer'),
             expandBtn: root.querySelector('#dy-chat-expand-btn'),
         };
@@ -1058,9 +1185,10 @@
     /* ================================================================
      * § 9.5 Controls：播放器控件 + 折叠 + 弹幕设置
      * ================================================================ */
-    // 把 prefs 反映到 DOM / video（仅音量 + 折叠两类）
+    // 把 prefs 反映到 DOM / video
     const applyPrefs = () => {
         if (!shell) return;
+        normalizeLatencyPrefs();
         const v = document.querySelector('video');
         // 音量
         if (v) {
@@ -1081,6 +1209,26 @@
             danmuBtn.title = DANMU_MODE_TIPS[mode];
             danmuBtn.classList.toggle('dy-off', mode === 'off');
             danmuBtn.classList.toggle('dy-mode-native', mode === 'native');
+        }
+        const realtimeBtn = shell.controlbar.querySelector('[data-act="realtime-toggle"]');
+        if (realtimeBtn) {
+            realtimeBtn.classList.toggle('dy-active', !!prefs.realtimeEnabled);
+            realtimeBtn.classList.toggle('dy-off', !prefs.realtimeEnabled);
+            realtimeBtn.title = `实时模式：${prefs.realtimeEnabled ? '开' : '关'} / 最大 ${prefs.latencyMaxSec.toFixed(1)}s / 追到 ${prefs.latencyTargetSec.toFixed(1)}s`;
+        }
+        const pluginBtn = shell.controlbar.querySelector('[data-act="plugin-settings"]');
+        if (pluginBtn) pluginBtn.classList.toggle('dy-active', shell.root.classList.contains('dy-plugin-open'));
+        const panel = shell.pluginPanel;
+        if (panel) {
+            const realtimeInput = panel.querySelector('[data-pref="realtimeEnabled"]');
+            if (realtimeInput) realtimeInput.checked = !!prefs.realtimeEnabled;
+            panel.querySelectorAll('[data-pref="latencyMaxSec"]').forEach(input => {
+                input.value = String(prefs.latencyMaxSec);
+            });
+            panel.querySelectorAll('[data-pref="latencyTargetSec"]').forEach(input => {
+                input.value = String(prefs.latencyTargetSec);
+                if (input.max != null) input.max = String(Math.min(3, Math.max(0.1, prefs.latencyMaxSec - 0.1)));
+            });
         }
         // v2.13: 飞行弹幕 CSS 变量（字号 + 不透明度，直接驱动 .dy-fly-item）
         if (shell.flyingLayer) {
@@ -1132,7 +1280,12 @@
         lbl.textContent = active || prefs.quality || '画质';
     };
 
-    const setPref = (k, v) => { prefs[k] = v; savePrefs(prefs); applyPrefs(); };
+    const setPref = (k, v) => {
+        prefs[k] = v;
+        normalizeLatencyPrefs();
+        savePrefs(prefs);
+        applyPrefs();
+    };
 
     // v2.13: popover 控制（画质 + 弹幕设置共用）
     const closeAllPopovers = () => {
@@ -1205,6 +1358,23 @@
                 }
                 case 'mute': {
                     setPref('muted', !prefs.muted);
+                    break;
+                }
+                case 'realtime-toggle': {
+                    setPref('realtimeEnabled', !prefs.realtimeEnabled);
+                    showUI();
+                    break;
+                }
+                case 'plugin-settings': {
+                    closeAllPopovers();
+                    shell.root.classList.toggle('dy-plugin-open');
+                    showUI();
+                    applyPrefs();
+                    break;
+                }
+                case 'plugin-close': {
+                    shell.root.classList.remove('dy-plugin-open');
+                    applyPrefs();
                     break;
                 }
                 case 'quality': {
@@ -1295,6 +1465,24 @@
         if (qualityPop) {
             qualityPop.addEventListener('mousedown', (e) => e.stopPropagation());
         }
+        if (shell.pluginPanel) {
+            shell.pluginPanel.addEventListener('input', (e) => {
+                const input = e.target.closest('[data-pref]');
+                if (!input) return;
+                const key = input.dataset.pref;
+                if (key === 'realtimeEnabled') setPref(key, input.checked);
+                else setPref(key, Number(input.value));
+                showUI();
+            });
+            shell.pluginPanel.addEventListener('mousedown', (e) => e.stopPropagation());
+            shell.pluginPanel.addEventListener('click', (e) => {
+                const close = e.target.closest('[data-act="plugin-close"]');
+                if (close) {
+                    shell.root.classList.remove('dy-plugin-open');
+                    applyPrefs();
+                }
+            });
+        }
 
         // === Shell 上的展开按钮（折叠态露出） ===
         if (shell.expandBtn) {
@@ -1307,8 +1495,13 @@
             document.addEventListener('mousedown', (e) => {
                 if (!shell) return;
                 if (e.target.closest('.dy-popover')) return;
-                if (e.target.closest('[data-act="quality"], [data-act="danmu-settings"]')) return;
+                if (e.target.closest('#dy-plugin-panel')) return;
+                if (e.target.closest('[data-act="quality"], [data-act="danmu-settings"], [data-act="plugin-settings"]')) return;
                 closeAllPopovers();
+                if (shell.root.classList.contains('dy-plugin-open')) {
+                    shell.root.classList.remove('dy-plugin-open');
+                    applyPrefs();
+                }
             });
         }
 
@@ -1326,7 +1519,8 @@
 
         // === 鼠标静置自动隐藏 UI ===
         let hideTimer = null;
-        const popoverOpen = () => !!cb.querySelector('.dy-popover:not([hidden])');
+        const popoverOpen = () => !!cb.querySelector('.dy-popover:not([hidden])') ||
+            !!(shell && shell.root.classList.contains('dy-plugin-open'));
         const scheduleHide = () => {
             clearTimeout(hideTimer);
             hideTimer = setTimeout(() => {
@@ -1345,6 +1539,7 @@
             if (!shell) return;
             clearTimeout(hideTimer);
             closeAllPopovers();                       // v2.13: UI 强制隐藏时一并关 popover
+            shell.root.classList.remove('dy-plugin-open');
             shell.root.classList.remove('dy-ui-active');
         };
         shell.videoHost.addEventListener('mousemove', showUI);
@@ -1357,7 +1552,7 @@
 
         // === 双击视频区切换全屏（避开 controlbar / 原生设置浮层 / expand 按钮） ===
         shell.videoHost.addEventListener('dblclick', (e) => {
-            if (e.target.closest('#dy-shell-controlbar, #dy-chat-expand-btn')) return;
+            if (e.target.closest('#dy-shell-controlbar, #dy-chat-expand-btn, #dy-plugin-panel')) return;
             if (e.target.closest('[class*="setting-"]')) return;
             if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
             else shell.root.requestFullscreen().catch(() => {});
@@ -1369,10 +1564,12 @@
             document.addEventListener('keydown', (e) => {
                 if (!shell) return;
                 // v2.13: ESC 优先关 popover（且阻止冒泡到浏览器退出全屏）
-                if (e.code === 'Escape' && shell.controlbar.querySelector('.dy-popover:not([hidden])')) {
+                if (e.code === 'Escape' && (shell.controlbar.querySelector('.dy-popover:not([hidden])') || shell.root.classList.contains('dy-plugin-open'))) {
                     e.preventDefault();
                     e.stopPropagation();
                     closeAllPopovers();
+                    shell.root.classList.remove('dy-plugin-open');
+                    applyPrefs();
                     return;
                 }
                 const tag = (e.target.tagName || '').toLowerCase();
@@ -1422,9 +1619,12 @@
             if (!v.buffered.length) { setStatus('缓冲中', null); return; }
             const end = v.buffered.end(v.buffered.length - 1);
             const lag = end - v.currentTime;
-            if (lag > CFG.LATENCY_THRESHOLD) {
-                v.currentTime = end - CFG.LATENCY_TARGET;
-                setStatus('实时（已追帧）', CFG.LATENCY_TARGET);
+            normalizeLatencyPrefs();
+            if (!prefs.realtimeEnabled) {
+                setStatus('实时模式关', lag);
+            } else if (lag > prefs.latencyMaxSec) {
+                v.currentTime = end - prefs.latencyTargetSec;
+                setStatus('实时（已追帧）', prefs.latencyTargetSec);
             } else if (lag < 0) {
                 setStatus('追赶中', null);
             } else {
@@ -1659,5 +1859,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.13.0 已加载（新增：画质切换 + 弹幕设置）');
+    console.log('[Douyu Cleaner] v2.13.0 已加载（新增：画质切换 + 弹幕设置 + 实时模式控制台）');
 })();
