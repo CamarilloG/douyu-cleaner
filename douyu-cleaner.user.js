@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/yourname/douyu-cleaner
-// @version      2.13.0
+// @version      2.14.0
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       you
 // @match        *://*.douyu.com/*
@@ -56,6 +56,8 @@
         SEL_PLAYER_CASE: '#js-player-video-case',
         SEL_PLAYER_MULTI: '#js-player-multiContainer',
         SEL_RATE: '[class^="rate-"]',
+        // v2.14: 原生顶部导航栏候选选择器（按优先级 try-fallback）
+        SEL_HEADER_CANDIDATES: ['#js-header', '.layout-Header', '[class*="Header-main"]', '[class^="Header-"]'],
         SEL_BARRAGE: '.Barrage-list',
         SEL_CHAT_INPUT: '.ChatSend-txt',
         SEL_CHAT_SEND: '.ChatSend-button',
@@ -81,6 +83,8 @@
         fullscreen: '<svg fill="none" viewBox="0 0 32 32"><path d="M20 25h5v-5M20 7h5v5M12 7H7v5M12 25H7v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         chevronRight: '<svg fill="none" viewBox="0 0 32 32"><path d="M14 8l8 8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         chevronLeft: '<svg fill="none" viewBox="0 0 32 32"><path d="M18 8l-8 8 8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        // v2.14: 顶部导航栏切换图标（窗口图样 + 顶端标识线）
+        header: '<svg fill="none" viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M5 13h22" stroke="currentColor" stroke-width="2"/></svg>',
     };
 
     /* 用户偏好持久化（localStorage）
@@ -107,6 +111,8 @@
         danmuLanes: 10,       // 4 ~ 20 行
         danmuArea: 100,       // 25 ~ 100 %（屏高占比）
         danmuShowNick: true,  // 自建飞行弹幕是否显示用户名（含冒号前缀）
+        // v2.14: 保留原生顶部导航栏的可见性（头像、关注、消息等）
+        headerVisible: false,
     };
     const DANMU_MODES = ['custom', 'native', 'off'];
     const DANMU_MODE_TIPS = {
@@ -196,14 +202,22 @@
     const css = `
         ${adHideSelectors.join(',')}{ display:none !important; }
 
-        /* 极简 shell：覆盖整个 viewport */
+        /* 极简 shell：默认覆盖整个 viewport。v2.14 让 top 可被 .dy-header-visible 单独覆盖 */
         #dy-shell{
-            position:fixed !important; inset:0 !important;
+            position:fixed !important;
+            top:0 !important; right:0 !important; bottom:0 !important; left:0 !important;
             background:#000;
             display:flex; flex-direction:row;
             z-index:9999;
+            transition: top 0.22s ease;
             font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
         }
+        /* v2.14: 显示原生顶栏时，让出顶部 --dy-header-h 像素（运行时测量） */
+        #dy-shell.dy-header-visible{
+            top: var(--dy-header-h, 50px) !important;
+        }
+        /* v2.14: 顶栏切换按钮激活态 */
+        #dy-shell-controlbar .dy-btn.dy-active{ color: #27c93f; }
         #dy-shell-video{
             flex:1 1 auto; position:relative; background:#000;
             min-width:0; overflow:hidden;
@@ -993,6 +1007,7 @@
                     </div>
                 </div>
                 <div id="dy-shell-controlbar">
+                    <button class="dy-btn" data-act="header-toggle" title="显示/隐藏顶栏 (H)">${SVG.header}</button>
                     <button class="dy-btn" data-act="play" title="暂停/继续 (Space)">${SVG.play}</button>
                     <button class="dy-btn" data-act="refresh" title="刷新（追到实时）">${SVG.reload}</button>
                     <span class="dy-vol-wrap">
@@ -1239,6 +1254,19 @@
         syncDanmuPopValues();
         // v2.13: 画质按钮 label
         updateQualityLabel();
+        // v2.14: 原生顶栏显示/隐藏
+        const headerOn = !!prefs.headerVisible;
+        shell.root.classList.toggle('dy-header-visible', headerOn);
+        if (shell.nativeHeader) {
+            // 开：z 拔高到 10000 让 dropdown 越过 shell；关：还原（让 shell 自然覆盖 + 吃掉点击）
+            if (headerOn) shell.nativeHeader.style.setProperty('z-index', '10000', 'important');
+            else shell.nativeHeader.style.removeProperty('z-index');
+        }
+        const headerBtn = shell.controlbar.querySelector('[data-act="header-toggle"]');
+        if (headerBtn) {
+            headerBtn.classList.toggle('dy-active', headerOn);
+            headerBtn.title = headerOn ? '隐藏顶栏 (H)' : '显示顶栏 (H)';
+        }
     };
 
     // v2.13: 把当前 prefs 推回弹幕设置 popover 的 slider + 数值显示
@@ -1285,6 +1313,47 @@
         normalizeLatencyPrefs();
         savePrefs(prefs);
         applyPrefs();
+    };
+
+    /* ================================================================
+     * § 9.6 v2.14 原生顶栏可选保留：measure + observer
+     *
+     * 原生 header 一直在 DOM 里（我们只是用 inset:0 盖住），仅需让 shell
+     * 让出顶部空间即可。CSS 变量 --dy-header-h 由 JS 测量后写到 shell.root。
+     * ================================================================ */
+    const findNativeHeader = () => {
+        for (const sel of CFG.SEL_HEADER_CANDIDATES) {
+            const el = document.querySelector(sel);
+            if (el) return el;
+        }
+        return null;
+    };
+    const measureAndApplyHeaderHeight = () => {
+        if (!shell || !shell.nativeHeader) return;
+        const h = Math.round(shell.nativeHeader.getBoundingClientRect().height);
+        if (h > 0) shell.root.style.setProperty('--dy-header-h', h + 'px');
+    };
+    const setupNativeHeader = async () => {
+        if (!shell) return;
+        const tryOnce = () => findNativeHeader();
+        let header = tryOnce();
+        if (!header) {
+            // 用现成的 waitFor 等候第一个候选选择器；找不到走 fallback 逐一探测
+            await waitFor(CFG.SEL_HEADER_CANDIDATES[0], 8000).catch(() => null);
+            header = tryOnce();
+        }
+        if (!header || !shell) return;
+        shell.nativeHeader = header;
+        // z-index 在 applyPrefs 内随 headerVisible 切换：开 → 10000 越过 shell(9999)
+        // 关 → 移除 inline，恢复原生 z 让 shell 自然覆盖（避免不可见 header 抢点击）
+        measureAndApplyHeaderHeight();
+        applyPrefs();   // 测好高度后立刻把 headerVisible 反映到 DOM
+        if (shell._headerRO) try { shell._headerRO.disconnect(); } catch (e) {}
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => measureAndApplyHeaderHeight());
+            ro.observe(header);
+            shell._headerRO = ro;
+        }
     };
 
     // v2.13: popover 控制（画质 + 弹幕设置共用）
@@ -1345,6 +1414,10 @@
             const act = btn.dataset.act;
             const vid = v();
             switch (act) {
+                case 'header-toggle': {
+                    setPref('headerVisible', !prefs.headerVisible);
+                    break;
+                }
                 case 'play': {
                     if (!vid) return;
                     if (vid.paused) vid.play().catch(() => {}); else vid.pause();
@@ -1593,6 +1666,10 @@
                     const next = DANMU_MODES[(DANMU_MODES.indexOf(cur) + 1) % DANMU_MODES.length];
                     setPref('danmuMode', next);
                     showUI();
+                } else if (e.code === 'KeyH') {
+                    e.preventDefault();
+                    setPref('headerVisible', !prefs.headerVisible);
+                    showUI();
                 }
             });
         }
@@ -1719,9 +1796,10 @@
         bindControls();
         bindChat();
         applyQualityPref();
+        setupNativeHeader();      // v2.14: 测量并接管原生顶栏
         startLatencyChase();
         releaseFlight();
-        console.log('[Douyu Cleaner] v2.13 shell mounted ✓');
+        console.log('[Douyu Cleaner] v2.14 shell mounted ✓');
         // 诊断：mount 完成后 2s 报告弹幕容器状态，方便排查"弹幕没显示"
         setTimeout(() => {
             const comment = document.querySelector('[class*="comment-"]:not([class*="sendComment"])');
@@ -1750,6 +1828,11 @@
         originalPlayerNext = null;
         if (chat) { chat.destroy(); chat = null; }
         if (shell && shell._rateOb) { try { shell._rateOb.disconnect(); } catch (e) {} }
+        if (shell && shell._headerRO) { try { shell._headerRO.disconnect(); } catch (e) {} }
+        // v2.14: 还原原生顶栏的 inline z-index（避免影响离开直播间后的页面）
+        if (shell && shell.nativeHeader) {
+            try { shell.nativeHeader.style.removeProperty('z-index'); } catch (e) {}
+        }
         if (shell && shell.root) shell.root.remove();
         shell = null;
     };
@@ -1859,5 +1942,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.13.0 已加载（新增：画质切换 + 弹幕设置 + 实时模式控制台）');
+    console.log('[Douyu Cleaner] v2.14.0 已加载（新增：原生顶栏可选保留 / H 切换 + 实时模式控制台）');
 })();
