@@ -1,13 +1,17 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
-// @namespace    https://github.com/yourname/douyu-cleaner
-// @version      2.14.0
+// @namespace    https://github.com/CamarilloG/douyu-cleaner
+// @version      2.14.1
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
-// @author       you
+// @author       CamarilloG
 // @match        *://*.douyu.com/*
 // @run-at       document-start
 // @grant        none
 // @license      MIT
+// @homepageURL  https://github.com/CamarilloG/douyu-cleaner
+// @supportURL   https://github.com/CamarilloG/douyu-cleaner/issues
+// @updateURL    https://raw.githubusercontent.com/CamarilloG/douyu-cleaner/main/douyu-cleaner.user.js
+// @downloadURL  https://raw.githubusercontent.com/CamarilloG/douyu-cleaner/main/douyu-cleaner.user.js
 // ==/UserScript==
 
 /*
@@ -1942,5 +1946,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.14.0 已加载（新增：原生顶栏可选保留 / H 切换 + 实时模式控制台）');
+    console.log('[Douyu Cleaner] v2.14.1 已加载（接入 Tampermonkey 自动更新源 / GitHub raw）');
 })();
