@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
-// @namespace    https://github.com/yourname/douyu-cleaner
-// @version      2.15.1
+// @namespace    https://github.com/CamarilloG/douyu-cleaner
+// @version      2.15.2
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       CamarilloG
 // @match        *://*.douyu.com/*
@@ -2081,5 +2081,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.15.1 已加载（修复流断重连后弹幕双重显示）');
+    console.log('[Douyu Cleaner] v2.15.2 已加载（@namespace 重定基线为真实仓库地址）');
 })();
