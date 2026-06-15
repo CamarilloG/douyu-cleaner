@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
-// @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.15.0
+// @namespace    https://github.com/yourname/douyu-cleaner
+// @version      2.15.1
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       CamarilloG
 // @match        *://*.douyu.com/*
@@ -371,8 +371,11 @@
            - custom: 显示自建飞行层，隐藏原生 .danmuItem-XXX 避免双倍
            - native: 隐藏自建层，原生 React 渲染
            - off:    都隐藏 */
-        /* custom: 隐藏原生飞行子项 */
-        #dy-shell[data-danmu-mode="custom"] #dy-shell-video [class*="comment-"]:not([class*="sendComment"]) [class*="danmuItem-"]{
+        /* custom: 隐藏原生飞行子项（避免与自建双倍）。
+           v2.15.1: 去掉对 [class*="comment-"] 祖先的依赖——流断重连/刷新后斗鱼可能换一
+           个容器类重新渲染原生飞行弹幕，旧选择器漏匹配就会出现「双重弹幕」。改为对视频区
+           内任意 danmuItem- 生效（custom 模式下永不需要原生飞行弹幕）。 */
+        #dy-shell[data-danmu-mode="custom"] #dy-shell-video [class*="danmuItem-"]{
             display: none !important;
         }
         /* native: 隐藏自建层 */
@@ -383,7 +386,7 @@
         #dy-shell[data-danmu-mode="off"] #dy-flying-layer{
             visibility: hidden !important;
         }
-        #dy-shell[data-danmu-mode="off"] #dy-shell-video [class*="comment-"]:not([class*="sendComment"]) [class*="danmuItem-"]{
+        #dy-shell[data-danmu-mode="off"] #dy-shell-video [class*="danmuItem-"]{
             display: none !important;
         }
         /* controlbar 按钮的 3 态着色 */
@@ -842,6 +845,10 @@
     /* ================================================================
      * § 6. ChatPanel
      * ================================================================ */
+    // v2.15.1: 已处理过的 Barrage-listItem 节点（按节点身份去重，模块级 = 跨 ChatPanel/
+    // 跨重绑都生效）。流断重连/刷新后若出现重绑竞态导致同一条弹幕被处理两次，这里兜底，
+    // 保证每个节点只镜像 + 只喷飞行一次 → 杜绝「双重弹幕」。WeakSet 不持有引用，无内存泄漏。
+    const processedBarrageItems = new WeakSet();
     class ChatPanel {
         constructor(host) {
             this.host = host;
@@ -954,6 +961,8 @@
             // 初始批量加载历史弹幕：仅镜像到 chat panel，不喷飞行
             this._suppressFly = true;
             list.querySelectorAll('.Barrage-listItem').forEach(li => {
+                if (processedBarrageItems.has(li)) return;   // v2.15.1: 节点级去重
+                processedBarrageItems.add(li);
                 this.addMessage(parseListItem(li));
             });
             this._suppressFly = false;
@@ -962,6 +971,8 @@
                 for (const m of mutations) {
                     for (const n of m.addedNodes) {
                         if (n.nodeType === 1 && n.classList && n.classList.contains('Barrage-listItem')) {
+                            if (processedBarrageItems.has(n)) continue;   // v2.15.1: 防重绑竞态双喷
+                            processedBarrageItems.add(n);
                             this.addMessage(parseListItem(n));
                         }
                     }
@@ -2070,5 +2081,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.15.0 已加载（弹幕样式预设含斗鱼原生 / 广告屏蔽补漏）');
+    console.log('[Douyu Cleaner] v2.15.1 已加载（修复流断重连后弹幕双重显示）');
 })();
