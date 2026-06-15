@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.14.1
+// @version      2.15.0
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       CamarilloG
 // @match        *://*.douyu.com/*
@@ -115,9 +115,22 @@
         danmuLanes: 10,       // 4 ~ 20 行
         danmuArea: 100,       // 25 ~ 100 %（屏高占比）
         danmuShowNick: true,  // 自建飞行弹幕是否显示用户名（含冒号前缀）
+        // v2.15: 自建飞行弹幕的视觉样式预设（见 DANMU_STYLES）。'stroke' = 历史默认
+        danmuStyle: 'stroke',
         // v2.14: 保留原生顶部导航栏的可见性（头像、关注、消息等）
         headerVisible: false,
     };
+    // v2.15: 飞行弹幕样式预设。key 写到 #dy-flying-layer[data-fly-style]，纯 CSS 驱动
+    //   （字号 / 不透明度仍走 --dy-fly-font / --dy-fly-opacity，样式只改描边/字重/底框）
+    const DANMU_STYLES = [
+        { key: 'stroke', label: '描边（默认）' },
+        { key: 'native', label: '斗鱼原生' },
+        { key: 'bold',   label: '粗体描边' },
+        { key: 'shadow', label: '柔和投影' },
+        { key: 'flat',   label: '纯色无边' },
+        { key: 'pill',   label: '气泡底框' },
+    ];
+    const DANMU_STYLE_KEYS = DANMU_STYLES.map(s => s.key);
     const DANMU_MODES = ['custom', 'native', 'off'];
     const DANMU_MODE_TIPS = {
         custom: '弹幕：自建 (按 D 切换)',
@@ -198,6 +211,36 @@
         '.roomSmallPlayerFloatLayout',
         '[class*="FloatLayout"]', '[class*="float-ad"]',
         '[class*="XinghaiAd"]',
+
+        /* ── v2.15 补漏（公开过滤列表 xinggsf / cjxlist / EasyList China + DouyuEx 比对，
+           经对抗校验剔除会误伤 聊天/弹幕/视频/导航 的项后保留）── */
+        /* 视频区内 / 播放器浮层广告（会透过 shell 显示，最关键的一类） */
+        '[class*="CloseVideoPlayerAd"]', '[class*="IconCardAd"]', '[class*="IconCardAdBoundsBox"]',
+        '[class*="VideoAboveVivoAd"]', '[class*="werbungContainer"]', '[class*="noHandlerAd"]',
+        '[class*="corner-ad"]', '#js-player-asideTopSuspension', '[class*="aside-top-uspension-box"]',
+        /* 顶部 / 标题 / 下拉 / 搜索 banner 广告 */
+        '[class*="room-top-banner-box"]', '[class*="Bottom-ad"]', '[class*="Title-ad"]',
+        '[class*="DropPane-ad"]', '[class*="Search-Panel-Advert"]',
+        /* 右侧活动 / 推荐 / 云游戏 / 进房横幅（稳定 id + 活动梯） */
+        '#js-room-activity', '#js-bottom-right-recommendAd', '#js-bottom-right-cloudGame',
+        '#js-barrage-extend-container', '[class*="LadderNav"]', '[class*="liveos-workspace"]',
+        /* 引导 / 提示 / 浮窗 nag */
+        '[class*="FollowGuide"]', '[class*="CustomGroupGuide"]', '[class*="LiveRoomDianzan"]',
+        '[class*="AnchorPocketTips"]', '[class*="ZoomTip"]', '[class*="BattleShipTips"]',
+        '[class*="AroundStars"]',
+        /* 付费 / 充值 / 贵族 / 红包 弹窗 */
+        '[class*="PrivilegeGiftModalDialog"]', '[class*="ActPayDialog"]', '[class*="firstpay-modal"]',
+        '[class*="noble-up-guide"]', '[class*="PaladinPop"]', '[class*="RedEnvelopAd"]',
+        /* 引流 / 游戏 / 推荐 App / 竞猜 / 陪玩 / 砍价 / 盲盒 等推广 */
+        '[class*="PcDiversion"]', '[class*="CloudGameLink"]', '[class*="GameLauncher"]',
+        '[class*="LastLiveTime"]', '[class*="recommendAD"]', '[class*="recommendApp"]',
+        '[class*="FishShopTip"]', '[class*="BargainingKit"]', '[class*="BlindBoxTaskProp"]',
+        '[class*="GuessGameMiniPanelB"]', '[class*="InteractPlayWith"]', '[class*="SuperFansBubble"]',
+        /* 分享 / 客服 / 粉丝勋章弹窗 / 签到广告 */
+        '[class*="CommonShareToolkit"]', '[class*="SharePanel"]', '[class*="bacpCommonKeFu"]',
+        '[class*="FansMedalDialog"]', '[class*="SignBaseComponent-sign-ad"]', '[class*="PlayerToolbar-signCont"]',
+        /* 游戏推广跳转链接 */
+        'a[href*="g.wan.douyu.com"]',
     ];
 
     /* ================================================================
@@ -281,6 +324,49 @@
                这里只设置基础样式。字号/不透明度走 CSS 变量（v2.13） */
         }
         .dy-fly-item .dy-fly-nick{ margin-right: 6px; }
+
+        /* ⭐ v2.15 飞行弹幕样式预设：data-fly-style 切换描边/字重/底框。
+           字号(--dy-fly-font) 与 不透明度(--dy-fly-opacity) 不受样式影响，保持独立可调。
+           基础 .dy-fly-item 即 'stroke'（历史默认），其余样式按 id+attr 提权覆盖。 */
+        /* 斗鱼原生：半粗体 500 + 四向 1px 黑色描边（中文弹幕播放器/斗鱼标准配方）。
+           字重 500（比浏览器默认重、比 700 轻）、平台自适应中文字体栈、轻描边——
+           弹幕本身颜色走子 span inline color 覆盖，不用 !important 抢色。 */
+        #dy-flying-layer[data-fly-style="native"] .dy-fly-item{
+            font-weight: 500;
+            font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "Hiragino Sans GB", "Heiti SC", sans-serif;
+            text-shadow:
+                1px 0 1px rgba(0,0,0,0.8), -1px 0 1px rgba(0,0,0,0.8),
+                0 1px 1px rgba(0,0,0,0.8), 0 -1px 1px rgba(0,0,0,0.8),
+                1px 1px 1px rgba(0,0,0,0.5), -1px -1px 1px rgba(0,0,0,0.5);
+        }
+        /* 粗体描边：更重字重 + text-stroke，强可读 */
+        #dy-flying-layer[data-fly-style="bold"] .dy-fly-item{
+            font-weight: 800;
+            -webkit-text-stroke: 0.8px rgba(0,0,0,0.92);
+            paint-order: stroke fill;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
+        }
+        /* 柔和投影：无描边，字幕式软阴影 */
+        #dy-flying-layer[data-fly-style="shadow"] .dy-fly-item{
+            font-weight: 600;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.8);
+        }
+        /* 纯色无边：完全无描边/阴影，最干净（依赖弹幕本身颜色） */
+        #dy-flying-layer[data-fly-style="flat"] .dy-fly-item{
+            font-weight: 500;
+            text-shadow: none;
+            -webkit-text-stroke: 0;
+        }
+        /* 气泡底框：半透明圆角底板，现代直播聊天覆盖层观感 */
+        #dy-flying-layer[data-fly-style="pill"] .dy-fly-item{
+            font-weight: 600;
+            text-shadow: none;
+            background: rgba(0,0,0,0.42);
+            padding: 1px 10px;
+            border-radius: 999px;
+            backdrop-filter: blur(1px);
+            -webkit-backdrop-filter: blur(1px);
+        }
         /* ⭐ v2.12 弹幕 3 态开关 (custom / native / off)：
            - custom: 显示自建飞行层，隐藏原生 .danmuItem-XXX 避免双倍
            - native: 隐藏自建层，原生 React 渲染
@@ -460,6 +546,20 @@
             flex: 0 0 auto; width: 16px; height: 16px;
             accent-color: #27c93f; cursor: pointer; margin: 0;
         }
+        /* v2.15 样式下拉选择 */
+        .dy-pop-row.dy-pop-select{ padding-bottom: 8px; }
+        .dy-pop-styled-select{
+            flex: 1 1 auto; min-width: 0;
+            background: #22252c; color: #e6e6e6;
+            border: 1px solid #343842; border-radius: 4px;
+            padding: 5px 8px; font-size: 12px; cursor: pointer;
+            outline: none; appearance: none; -webkit-appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><path d="M1 3l4 4 4-4" stroke="%238a93a0" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+            background-repeat: no-repeat; background-position: right 8px center;
+            padding-right: 24px;
+        }
+        .dy-pop-styled-select:focus{ border-color: #4a90e2; }
+        .dy-pop-styled-select option{ background: #22252c; color: #e6e6e6; }
         /* danmuMode != custom 时 settings 主体灰显（仅 body 失效，提示文案仍可见） */
         .dy-danmu-pop-body{ transition: opacity 0.18s; }
         #dy-shell:not([data-danmu-mode="custom"]) .dy-danmu-pop-body{
@@ -1035,6 +1135,12 @@
                         <div class="dy-popover dy-danmu-pop" hidden>
                             <div class="dy-pop-title">自建飞行弹幕</div>
                             <div class="dy-danmu-pop-body">
+                                <div class="dy-pop-row dy-pop-select" data-pop-key="danmuStyle">
+                                    <label>样式</label>
+                                    <select class="dy-pop-styled-select">
+                                        ${DANMU_STYLES.map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
+                                    </select>
+                                </div>
                                 <div class="dy-pop-row" data-pop-key="danmuOpacity">
                                     <label>不透明度</label>
                                     <input type="range" min="20" max="100" step="5" />
@@ -1253,6 +1359,9 @@
         if (shell.flyingLayer) {
             shell.flyingLayer.style.setProperty('--dy-fly-opacity', String(prefs.danmuOpacity));
             shell.flyingLayer.style.setProperty('--dy-fly-font', (prefs.danmuFontSize | 0) + 'px');
+            // v2.15: 样式预设
+            const flyStyle = DANMU_STYLE_KEYS.includes(prefs.danmuStyle) ? prefs.danmuStyle : 'stroke';
+            shell.flyingLayer.setAttribute('data-fly-style', flyStyle);
         }
         // v2.13: 弹幕设置 popover 内 slider + 值显示同步
         syncDanmuPopValues();
@@ -1300,6 +1409,12 @@
         if (nickRow) {
             const cb = nickRow.querySelector('input[type="checkbox"]');
             if (cb) cb.checked = !!prefs.danmuShowNick;
+        }
+        // v2.15: 样式下拉同步
+        const styleSel = pop.querySelector('.dy-pop-row[data-pop-key="danmuStyle"] select');
+        if (styleSel) {
+            const cur = DANMU_STYLE_KEYS.includes(prefs.danmuStyle) ? prefs.danmuStyle : 'stroke';
+            if (styleSel.value !== cur) styleSel.value = cur;
         }
     };
 
@@ -1523,6 +1638,12 @@
                 const row = e.target.closest('.dy-pop-row[data-pop-key]');
                 if (!row) return;
                 const key = row.dataset.popKey;
+                if (e.target.tagName === 'SELECT') {
+                    if (key === 'danmuStyle') {
+                        setPref('danmuStyle', DANMU_STYLE_KEYS.includes(e.target.value) ? e.target.value : 'stroke');
+                    }
+                    return;
+                }
                 if (e.target.type === 'checkbox') {
                     if (key === 'danmuShowNick') setPref('danmuShowNick', !!e.target.checked);
                     return;
@@ -1900,7 +2021,7 @@
     /* ================================================================
      * § 14. 广告动态清理 + XHR/fetch 拦截（v1.5 沿用）
      * ================================================================ */
-    const keywordRe = /(advert|Advert|ScreenBanner|FishballTreasure|TreasureEntrance|InteractABAd|RoomRecom|Recommend|Promotion|SignIn|TaskCenter|Lottery|ActivityItem|FloatLayout|roomSmallPlayerFloat|Coupon|ShopKeeper|WearMedal|GiftInfoPanel-banner|AdvancedGiftBanner|Business|activeItem__|activeBar__|Recharge|BigRewards|SupplyStation|SupremeRight|CreateCenter|ChatRank|DiamondsFansRank|RankTips|PubgGamePropShop|ActBase-bar|ActBase-switch|ActRotation|Header-download|Header-taskentry|taskScoreEntry|TaskEntryPanel|CPSDialog|AnchorUpDialog|ToolbarGiftCard|ToolbarGiftArea|PlayerToolbar-Task|DiamondsFansEnter|AnchorGachaEntrance|NobleToolbarEnter|VRankEntrance|wm-pc-room-DropMenu|wm-pc-room-button|XinghaiAd)/;
+    const keywordRe = /(advert|Advert|ScreenBanner|FishballTreasure|TreasureEntrance|InteractABAd|RoomRecom|Recommend|Promotion|SignIn|TaskCenter|Lottery|ActivityItem|FloatLayout|roomSmallPlayerFloat|Coupon|ShopKeeper|WearMedal|GiftInfoPanel-banner|AdvancedGiftBanner|Business|activeItem__|activeBar__|Recharge|BigRewards|SupplyStation|SupremeRight|CreateCenter|ChatRank|DiamondsFansRank|RankTips|PubgGamePropShop|ActBase-bar|ActBase-switch|ActRotation|Header-download|Header-taskentry|taskScoreEntry|TaskEntryPanel|CPSDialog|AnchorUpDialog|ToolbarGiftCard|ToolbarGiftArea|PlayerToolbar-Task|DiamondsFansEnter|AnchorGachaEntrance|NobleToolbarEnter|VRankEntrance|wm-pc-room-DropMenu|wm-pc-room-button|XinghaiAd|CloseVideoPlayerAd|IconCardAd|VideoAboveVivoAd|werbungContainer|noHandlerAd|corner-ad|aside-top-uspension|room-top-banner|Bottom-ad|Title-ad|DropPane-ad|LadderNav|liveos-workspace|FollowGuide|CustomGroupGuide|LiveRoomDianzan|AnchorPocketTips|ZoomTip|BattleShipTips|AroundStars|PrivilegeGiftModalDialog|ActPayDialog|firstpay-modal|noble-up-guide|PaladinPop|RedEnvelopAd|PcDiversion|CloudGameLink|GameLauncher|LastLiveTime|recommendAD|recommendApp|FishShopTip|BargainingKit|BlindBoxTaskProp|GuessGameMiniPanelB|InteractPlayWith|SuperFansBubble|CommonShareToolkit|SharePanel|bacpCommonKeFu|FansMedalDialog|SignBaseComponent-sign-ad|PlayerToolbar-signCont)/;
     const clean = (root) => {
         if (!root || root.nodeType !== 1) return;
         const cls = root.getAttribute && root.getAttribute('class');
@@ -1919,7 +2040,10 @@
     if (document.body) startCleanOb();
     else document.addEventListener('DOMContentLoaded', startCleanOb);
 
-    const blockUrlRe = /(\/advert\/|\/ad\/|adsrc|advertise|pos_ad|launchad|\/promotion\/|\/screenAd|tongji|hm\.baidu|cnzz|RechargeBigRewards|supplystation|PubgGamePropShop|ActRotation)/i;
+    // v2.15: 仅追加无歧义的「广告/活动数据」端点（返回 {} 安全）。
+    // 不拦截 /front-publish/.../js/room/*.js 这类 webpack 分包（拿 JSON 顶替会让 chunk loader 抛错），
+    // 那些广告组件的可见结果已由上面的 CSS display:none 兜住。
+    const blockUrlRe = /(\/advert\/|\/ad\/|adsrc|advertise|pos_ad|launchad|\/promotion\/|\/screenAd|tongji|hm\.baidu|cnzz|RechargeBigRewards|supplystation|PubgGamePropShop|ActRotation|adxdsp|\/japi\/sign\/web\/|\/member\/gamegift\/)/i;
     const EMPTY_JSON_URL = 'data:application/json,%7B%7D';
     const _open = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (method, url, ...rest) {
@@ -1946,5 +2070,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.14.1 已加载（接入 Tampermonkey 自动更新源 / GitHub raw）');
+    console.log('[Douyu Cleaner] v2.15.0 已加载（弹幕样式预设含斗鱼原生 / 广告屏蔽补漏）');
 })();
