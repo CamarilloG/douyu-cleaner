@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.15.2
-// @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（硬跳追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
+// @version      2.16.0
+// @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（加速追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       CamarilloG
 // @match        *://*.douyu.com/*
 // @run-at       document-start
@@ -21,7 +21,7 @@
     1) 极简 shell：position:fixed; inset:0; z-index:9999 覆盖整个原页面
     2) reparent #js-player-video-case 进 shell（视频区 + 飞行弹幕容器一起搬）
     3) 自动最高画质：点击 [class^="rate-"] 内第一项 <li>
-    4) 客户端追帧：监听 video.buffered.end - currentTime，超阈值硬跳
+    4) 客户端追帧：监听 video.buffered.end - currentTime，超阈值加速追帧（v2.16，过大才硬跳）
 
     [v2.1 引入并保留]
     5) Controlbar（原生 SVG icon 复刻）：暂停/刷新/音量/折叠/全屏
@@ -66,7 +66,8 @@
         SEL_CHAT_INPUT: '.ChatSend-txt',
         SEL_CHAT_SEND: '.ChatSend-button',
         CHAT_WIDTH: 350,
-        LATENCY_CHECK_MS: 2000,
+        LATENCY_CHECK_MS: 500,      // v2.16: 加速追帧需要较密的检查，及时在目标处恢复 1x
+        LATENCY_HARD_JUMP_MIN_SEC: 10,
         MAX_MESSAGES: 200,
         NEAR_BOTTOM_PX: 24,
         QUALITY_PRIORITY: ['原画', '2K60', '2K', '蓝光8M', '蓝光4M', '蓝光', '超清', '高清'],
@@ -791,12 +792,57 @@
         });
         ob.observe(document.documentElement, { childList: true, subtree: true });
     });
+    /* v2.16: 直播 <video> 定位。登录态房间页下方的「动态」PostCard 里嵌有多个 <video>
+       且在 DOM 中排在播放器之前，裸 document.querySelector('video') 会拿到帖子视频。 */
+    const getVideo = () =>
+        document.querySelector(`#dy-shell ${CFG.SEL_PLAYER_CASE} video`) ||
+        document.querySelector(`${CFG.SEL_PLAYER_CASE} video`) ||
+        document.querySelector('#js-player-video video');
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
     // 直播间路径：/<digits-or-letters>，排除 /directory /topic /search /user 等
     const isLiveRoomUrl = () => /^\/[A-Za-z0-9_-]+\/?$/.test(location.pathname)
         && !/^\/(directory|topic|search|user|cate|category|topic|gold|rank|cps|api|topic|game)/i.test(location.pathname);
+
+    /* v2.16: 直播间专用样式，用独立 <style> 开关（斗鱼会重置 <html> 的 class，挂 class 不可靠）
+       - 启动遮罩：document-start 即挂上，盖住 shell 建好之前的原生页面；播放器 reparent 完成
+         （或超时）后撤掉，避免挂载失败时页面一直黑屏
+       - 关 View Transition 命名：新版房间页（live-next）给播放器 / 顶部横幅设了
+         view-transition-name，过渡动画期间它们的快照画在 top layer，z-index 再高也盖不住，
+         表现为加载约 1s 后原生页面「闪一下」。只保留 root，整页快照里本就包含 shell */
+    const CLOAK_TIMEOUT_MS = 6000;
+    const toggleStyle = (id, cssText, on) => {
+        const el = document.getElementById(id);
+        if (!on) { if (el) el.remove(); return; }
+        if (el) return;
+        const st = document.createElement('style');
+        st.id = id;
+        st.textContent = cssText;
+        (document.head || document.documentElement).appendChild(st);
+    };
+    const setCloak = (on) => toggleStyle('douyu-cleaner-cloak',
+        `html::after{ content:''; position:fixed; inset:0; background:#000;
+                      z-index:2147483647; pointer-events:none; }`, on);
+    const uncloak = () => setCloak(false);
+    const setNoViewTransition = (on) => toggleStyle('douyu-cleaner-no-vt',
+        `body *{ view-transition-name:none !important; }`, on);
+    if (isLiveRoomUrl()) {
+        setCloak(true);
+        setTimeout(uncloak, CLOAK_TIMEOUT_MS);
+        setNoViewTransition(true);
+    }
+    // v2.16: 只剩 root 时斗鱼的过渡仍会把整页（含正在播放的视频）定格成快照再交叉淡入 250ms，
+    // 看起来像闪一下。直播间内直接跳过过渡动画：skipTransition() 照常执行 DOM 更新回调、
+    // 正常 resolve 各个 Promise，不破坏调用方的契约
+    if (typeof document.startViewTransition === 'function') {
+        const _startVT = document.startViewTransition;
+        document.startViewTransition = function (...args) {
+            const vt = _startVT.apply(this, args);
+            if (isLiveRoomUrl()) { try { vt.skipTransition(); } catch (e) { /* noop */ } }
+            return vt;
+        };
+    }
 
     /* ================================================================
      * § 5. 弹幕条目解析（v1.5 沿用）
@@ -1192,6 +1238,18 @@
             <div id="dy-shell-chat"></div>
         `;
         document.body.appendChild(root);
+        // v2.16: 页面早期渲染可能把挂在 body 上的 shell 冲掉 → 立即原样挂回，
+        // 不等 § 13 的 1.5s 自愈轮询（那期间原生页面会整个露出来）
+        const guardOb = new MutationObserver(() => {
+            if (shell && shell.root === root && !root.isConnected && document.body) {
+                document.body.appendChild(root);
+            }
+            // 仅在首次 reparent 完成后接管（之前交给 movePlayerIntoShell）
+            if (shell && shell.root === root && shell.playerMoved) {
+                adoptFreshPlayer();
+            }
+        });
+        guardOb.observe(document.documentElement, { childList: true, subtree: true });
         shell = {
             root,
             videoHost: root.querySelector('#dy-shell-video'),
@@ -1201,6 +1259,7 @@
             pluginPanel: root.querySelector('#dy-plugin-panel'),
             flyingLayer: root.querySelector('#dy-flying-layer'),
             expandBtn: root.querySelector('#dy-chat-expand-btn'),
+            _guardOb: guardOb,
         };
     };
 
@@ -1219,10 +1278,29 @@
     const movePlayerIntoShell = async () => {
         const caseEl = await waitFor(CFG.SEL_PLAYER_CASE, 30000);
         if (!caseEl || !shell) return false;
-        if (caseEl.parentElement === shell.videoHost) return true;
+        if (caseEl.parentElement === shell.videoHost) { shell.playerMoved = true; return true; }
         originalPlayerParent = caseEl.parentElement;
         originalPlayerNext = caseEl.nextSibling;
         shell.videoHost.appendChild(caseEl);
+        shell.playerMoved = true;
+        return true;
+    };
+
+    /* v2.16: 斗鱼首屏渲染后会整个重建播放器（新的 #js-player-video-case，视频在新容器里播放），
+       shell 里留下的是旧的空容器 → 黑屏；旧版本则是 shell 一起被冲掉、原生页面露出到自愈轮询为止。
+       发现 shell 外出现新容器就立即接管，替换掉旧的，并重新应用依赖播放器节点的状态。 */
+    const adoptFreshPlayer = () => {
+        if (!shell || !shell.root.isConnected) return false;
+        const fresh = Array.from(document.querySelectorAll(CFG.SEL_PLAYER_CASE))
+            .find(el => !shell.root.contains(el));
+        if (!fresh) return false;
+        shell.videoHost.querySelectorAll(CFG.SEL_PLAYER_CASE).forEach(el => el.remove());
+        originalPlayerParent = fresh.parentElement;
+        originalPlayerNext = fresh.nextSibling;
+        shell.videoHost.appendChild(fresh);
+        applyPrefs();
+        applyQualityPref();
+        if (shell.onPlayerAdopted) shell.onPlayerAdopted();
         return true;
     };
 
@@ -1240,11 +1318,25 @@
     const qualityIsActive = (el) =>
         /(^|\s)(selected|active|is-active|is-selected)[-_\s]/.test(' ' + ((el && el.className) || '').toString() + ' ');
 
-    // 读取当前 rate 下拉里的所有档位（每次现读，避免缓存失效）
-    const readQualities = () => {
+    /* v2.16: 斗鱼改版后画质 <li> 只在鼠标悬停 rate 时才由 React 渲染，移开即清空。
+       派发 mouseover 会同步渲染出列表，读取/点击完再派发 mouseout 收起
+       （同一个任务内完成，原生浮层不会被绘制出来）。 */
+    const withQualityMenuOpen = (fn) => {
         const rate = document.querySelector(CFG.SEL_RATE);
+        if (!rate) return fn(null);
+        const fire = (type) => rate.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+        fire('mouseover');
+        try { return fn(rate); }
+        finally { fire('mouseout'); }
+    };
+
+    // 只取「画质」那一栏的 <li>（新版菜单里还混有线路 / 画质增强 / panelFill 等节点）
+    const readQualityItems = (rate) => {
         if (!rate) return [];
-        return Array.from(rate.querySelectorAll('li'))
+        const group = Array.from(rate.querySelectorAll('[class^="tipItem-"]'))
+            .find(el => /画质/.test((el.querySelector('input') || {}).value || ''));
+        const lis = group ? group.querySelectorAll('ul > li') : rate.querySelectorAll('li');
+        return Array.from(lis)
             .map(li => ({
                 text: (li.textContent || '').trim(),
                 active: qualityIsActive(li),
@@ -1253,60 +1345,51 @@
             .filter(q => q.text);
     };
 
-    // 找当前激活档位文本（用于显示在按钮 label）
+    const matchQuality = (items, text) =>
+        (text && (items.find(q => q.text === text) || items.find(q => q.text.startsWith(text)))) || null;
+
+    // 读取当前所有档位（每次现读；返回的 nativeEl 在菜单收起后即失效，只用 text / active）
+    const readQualities = () => withQualityMenuOpen(readQualityItems);
+
+    // 找当前激活档位文本（用于显示在按钮 label）。
+    // 读原生按钮上的常驻文字，不展开菜单 —— 这里会被 rate 的 MutationObserver 回调调用，
+    // 展开菜单本身又会产生 mutation，读列表会形成循环。
     const currentActiveQuality = () => {
-        const list = readQualities();
-        const active = list.find(q => q.active);
+        const rate = document.querySelector(CFG.SEL_RATE);
+        if (!rate) return null;
+        const label = rate.querySelector('[class^="textLabel-"]');
+        const text = label && (label.textContent || '').trim();
+        if (text) return text;
+        const active = readQualityItems(rate).find(q => q.active);
         return active ? active.text : null;
     };
 
-    // 在当前 li 列表里找匹配某档位文本的 nativeEl（兜底：缓存失效时按文本重查）
-    const findQualityLi = (text) => {
-        if (!text) return null;
-        const list = readQualities();
-        return (list.find(q => q.text === text) ||
-                list.find(q => q.text.startsWith(text)) ||
-                null);
-    };
-
-    // 点击 li 切换画质（如果已激活则跳过）
-    const clickQualityLi = (q) => {
-        if (!q || !q.nativeEl) return false;
-        if (q.active) return true;
-        // 缓存的 nativeEl 可能已脱离 DOM：按文本兜底重查
-        const target = q.nativeEl.isConnected ? q : findQualityLi(q.text);
-        if (!target || !target.nativeEl) return false;
-        target.nativeEl.click();
+    // 按文本切换画质（已激活则跳过）
+    const clickQualityText = (text) => withQualityMenuOpen(rate => {
+        const target = matchQuality(readQualityItems(rate), text);
+        if (!target) return false;
+        if (!target.active) target.nativeEl.click();
         return true;
-    };
+    });
 
     // 应用画质偏好（替代原 pickHighestQuality）
     const applyQualityPref = async () => {
         const rate = await waitFor(CFG.SEL_RATE, 20000);
         if (!rate) return false;
-        const tryApply = () => {
-            const items = readQualities();
+        const tryApply = () => withQualityMenuOpen(rateEl => {
+            const items = readQualityItems(rateEl);
             if (!items.length) return false;
-            // 1) 用户偏好优先
-            if (prefs.quality) {
-                const target = items.find(q => q.text === prefs.quality) ||
-                               items.find(q => q.text.startsWith(prefs.quality));
-                if (target) {
-                    if (!target.active) target.nativeEl.click();
-                    return true;
-                }
-                // 找不到 → fallback 到自动最高（pref 保留）
-            }
+            // 1) 用户偏好优先；找不到 → fallback 到自动最高（pref 保留）
+            let target = matchQuality(items, prefs.quality);
             // 2) 自动最高
             for (const q of CFG.QUALITY_PRIORITY) {
-                const target = items.find(it => it.text === q || it.text.startsWith(q));
-                if (target) {
-                    if (!target.active) target.nativeEl.click();
-                    return true;
-                }
+                if (target) break;
+                target = matchQuality(items, q);
             }
-            return false;
-        };
+            if (!target) return false;
+            if (!target.active) target.nativeEl.click();
+            return true;
+        });
         if (tryApply()) return true;
         return new Promise(resolve => {
             let tries = 0;
@@ -1325,7 +1408,7 @@
     const applyPrefs = () => {
         if (!shell) return;
         normalizeLatencyPrefs();
-        const v = document.querySelector('video');
+        const v = getVideo();
         // 音量
         if (v) {
             v.volume = Math.max(0, Math.min(1, prefs.volume));
@@ -1350,7 +1433,7 @@
         if (realtimeBtn) {
             realtimeBtn.classList.toggle('dy-active', !!prefs.realtimeEnabled);
             realtimeBtn.classList.toggle('dy-off', !prefs.realtimeEnabled);
-            realtimeBtn.title = `实时模式：${prefs.realtimeEnabled ? '开' : '关'} / 最大 ${prefs.latencyMaxSec.toFixed(1)}s / 追到 ${prefs.latencyTargetSec.toFixed(1)}s`;
+            realtimeBtn.title = `实时模式：${prefs.realtimeEnabled ? '开' : '关'} / 超过 ${prefs.latencyMaxSec.toFixed(1)}s 加速追 / 追到 ${prefs.latencyTargetSec.toFixed(1)}s`;
         }
         const pluginBtn = shell.controlbar.querySelector('[data-act="plugin-settings"]');
         if (pluginBtn) pluginBtn.classList.toggle('dy-active', shell.root.classList.contains('dy-plugin-open'));
@@ -1445,6 +1528,15 @@
         applyPrefs();
     };
 
+    // v2.16: 音量为 0 也视为静音态（按钮图标同此判断）；取消静音时音量为 0 则恢复到默认音量，
+    // 否则按钮只翻转 muted、音量仍是 0，看起来「点了没反应」
+    const toggleMute = () => {
+        const silent = prefs.muted || !(prefs.volume > 0);
+        if (!silent) { setPref('muted', true); return; }
+        if (!(prefs.volume > 0)) prefs.volume = DEFAULT_PREFS.volume;
+        setPref('muted', false);
+    };
+
     /* ================================================================
      * § 9.6 v2.14 原生顶栏可选保留：measure + observer
      *
@@ -1523,7 +1615,7 @@
     const bindControls = () => {
         if (!shell) return;
         const cb = shell.controlbar;
-        const v = () => document.querySelector('video');
+        const v = getVideo;
 
         // === Controlbar 按钮事件代理 ===
         cb.addEventListener('click', (e) => {
@@ -1533,8 +1625,7 @@
                 const text = qLi.dataset.qualityText;
                 if (text) {
                     setPref('quality', text);
-                    const target = findQualityLi(text);
-                    if (target) clickQualityLi(target);
+                    clickQualityText(text);
                     closeAllPopovers();
                 }
                 return;
@@ -1560,7 +1651,7 @@
                     break;
                 }
                 case 'mute': {
-                    setPref('muted', !prefs.muted);
+                    toggleMute();
                     break;
                 }
                 case 'realtime-toggle': {
@@ -1617,18 +1708,27 @@
             const playBtn = cb.querySelector('[data-act="play"]');
             if (playBtn && vid) playBtn.innerHTML = vid.paused ? SVG.play : SVG.pause;
         };
-        const vid0 = v();
-        if (vid0) {
-            vid0.addEventListener('play', updatePlayIcon);
-            vid0.addEventListener('pause', updatePlayIcon);
-            // 监听 volumechange 同步 mute 状态（兼容用户用键盘 M 静音 / 浏览器 UI）
-            vid0.addEventListener('volumechange', () => {
-                prefs.volume = vid0.volume;
-                prefs.muted = vid0.muted;
-                savePrefs(prefs);
-                applyPrefs();
-            });
-        }
+        // v2.16: 媒体事件不冒泡，但捕获阶段能在祖先上收到 —— 挂在 videoHost 上，
+        // 斗鱼重建播放器（换了新 <video>）后依然有效，不必重绑
+        const isLiveVideo = (e) => e.target && e.target === v();
+        shell.videoHost.addEventListener('play', (e) => { if (isLiveVideo(e)) updatePlayIcon(); }, true);
+        shell.videoHost.addEventListener('pause', (e) => { if (isLiveVideo(e)) updatePlayIcon(); }, true);
+        // v2.16: 音量以 prefs 为准。斗鱼播放器初始化时会按它自己存的静音状态
+        // （player_storage_volume_is_muted）把 video.volume 设成 0；以前这里把它同步进 prefs，
+        // 结果 prefs.volume 被写成 0 → 每次进房间都没声音、滑条归零、静音按钮看起来失效。
+        // 现在发现被外部改动就改回来；限频防止和播放器来回抢。
+        let enforceTimes = [];
+        shell.videoHost.addEventListener('volumechange', (e) => {
+            if (!isLiveVideo(e)) return;
+            const vid = e.target;
+            const want = clamp(finiteOr(prefs.volume, DEFAULT_PREFS.volume), 0, 1);
+            if (Math.abs(vid.volume - want) < 0.001 && vid.muted === !!prefs.muted) return;
+            const now = Date.now();
+            enforceTimes = enforceTimes.filter(t => now - t < 2000);
+            if (enforceTimes.length >= 5) return;
+            enforceTimes.push(now);
+            applyPrefs();
+        }, true);
         updatePlayIcon();
 
         // 音量 slider
@@ -1725,6 +1825,7 @@
             updateQualityLabel();
         };
         setupRateObserver();
+        shell.onPlayerAdopted = setupRateObserver; // v2.16: 播放器重建后 rate 节点也是新的
 
         // === 鼠标静置自动隐藏 UI ===
         let hideTimer = null;
@@ -1794,7 +1895,7 @@
                     else shell.root.requestFullscreen().catch(() => {});
                 } else if (e.code === 'KeyM') {
                     e.preventDefault();
-                    setPref('muted', !prefs.muted);
+                    toggleMute();
                     showUI();
                 } else if (e.code === 'KeyD') {
                     e.preventDefault();
@@ -1821,32 +1922,80 @@
     };
 
     /* ================================================================
-     * § 10. 低延迟（currentTime 硬跳）
+     * § 10. 低延迟（v2.16：加速追帧，延迟过大才硬跳）
+     *
+     * 旧版延迟 > 最大延迟就直接 currentTime 硬跳，跳的那一下断帧，开播攒完首屏缓冲后
+     * 几乎必跳一次，看起来像「闪一下」。现在：
+     *   - 延迟 > 最大延迟 → 进入追帧态，playbackRate 提到 1.1～1.25x 平滑追（实测 1.25x 下
+     *     6s 延迟 3.2→1.4s，无 waiting）
+     *     （Chrome 默认 preservesPitch，声音不变调）
+     *   - 追到 ≤ 目标延迟 → 退出追帧态，恢复 1x（迟滞区间避免来回切换）
+     *   - 延迟 > 硬跳阈值（最大延迟 + 5s，至少 10s，如切后台回来）→ 仍硬跳
      * ================================================================ */
+    let catchingUp = false;
+    // 斗鱼拉流 SDK（dyp2p）的 checkStall → checkRate → setPlayRate 约每 500ms 把 playbackRate
+    // 写回 1，加速会被立刻抵消。追帧期间在该 <video> 实例上拦下外部写入，其余时间照常放行
+    // （不干扰 SDK 自己的卡顿处理）；我们自己走原型上的原生 setter。
+    const RATE_DESC = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
+    const rateGuarded = new WeakSet();
+    const guardPlaybackRate = (v) => {
+        if (!RATE_DESC || rateGuarded.has(v)) return;
+        rateGuarded.add(v);
+        try {
+            Object.defineProperty(v, 'playbackRate', {
+                configurable: true,
+                get() { return RATE_DESC.get.call(this); },
+                set(x) { if (!catchingUp) RATE_DESC.set.call(this, x); },
+            });
+        } catch (e) { /* noop */ }
+    };
+    const setRate = (v, rate) => {
+        if (!RATE_DESC) return;
+        guardPlaybackRate(v);
+        if (Math.abs(RATE_DESC.get.call(v) - rate) > 0.001) RATE_DESC.set.call(v, rate);
+    };
     const startLatencyChase = () => {
         if (latencyTimer) clearInterval(latencyTimer);
+        catchingUp = false;
         latencyTimer = setInterval(() => {
-            const v = document.querySelector('video');
+            const v = getVideo();
             if (!v) { setStatus('未找到视频', null, true); return; }
             if (v.paused) { setStatus('已暂停', null); return; }
             if (!v.buffered.length) { setStatus('缓冲中', null); return; }
             const end = v.buffered.end(v.buffered.length - 1);
             const lag = end - v.currentTime;
             normalizeLatencyPrefs();
+            const hardJumpSec = Math.max(CFG.LATENCY_HARD_JUMP_MIN_SEC, prefs.latencyMaxSec + 5);
             if (!prefs.realtimeEnabled) {
+                catchingUp = false;
+                setRate(v, 1);
                 setStatus('实时模式关', lag);
-            } else if (lag > prefs.latencyMaxSec) {
+            } else if (lag > hardJumpSec) {
+                catchingUp = false;
+                setRate(v, 1);
                 v.currentTime = end - prefs.latencyTargetSec;
-                setStatus('实时（已追帧）', prefs.latencyTargetSec);
+                setStatus('实时（已跳帧）', prefs.latencyTargetSec);
             } else if (lag < 0) {
                 setStatus('追赶中', null);
             } else {
-                setStatus('实时', lag);
+                if (lag > prefs.latencyMaxSec) catchingUp = true;
+                else if (lag <= prefs.latencyTargetSec) catchingUp = false;
+                if (catchingUp) {
+                    const rate = (lag - prefs.latencyTargetSec) > 2 ? 1.25 : 1.1;
+                    setRate(v, rate);
+                    setStatus(`实时（加速 ${rate}x）`, lag);
+                } else {
+                    setRate(v, 1);
+                    setStatus('实时', lag);
+                }
             }
         }, CFG.LATENCY_CHECK_MS);
     };
     const stopLatencyChase = () => {
         if (latencyTimer) { clearInterval(latencyTimer); latencyTimer = null; }
+        catchingUp = false;
+        const v = getVideo();
+        if (v) setRate(v, 1);
     };
 
     /* ================================================================
@@ -1925,10 +2074,12 @@
         // 兜底：35s 后无论成功失败都释放 flag（防 waitFor 30s 超时后卡死）
         const flightTimer = setTimeout(() => { mountInFlight = false; }, 35000);
         const releaseFlight = () => { clearTimeout(flightTimer); mountInFlight = false; };
+        setNoViewTransition(true);
         buildShell();
         chat = new ChatPanel(shell.chatHost);
         bindChatCollapseBtn();
         await movePlayerIntoShell();
+        uncloak();
         bindControls();
         bindChat();
         applyQualityPref();
@@ -1953,6 +2104,8 @@
         }, 2000);
     };
     const unmount = () => {
+        // 先停 guard：下面把 player case 搬回原位时不能被它当成「新播放器」接管回来
+        if (shell && shell._guardOb) { try { shell._guardOb.disconnect(); } catch (e) {} }
         stopLatencyChase();
         // 复原 player case
         const caseEl = document.querySelector(CFG.SEL_PLAYER_CASE);
@@ -1971,6 +2124,7 @@
         }
         if (shell && shell.root) shell.root.remove();
         shell = null;
+        setNoViewTransition(false);
     };
     const remount = async () => {
         unmount();
@@ -2081,5 +2235,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.15.2 已加载（@namespace 重定基线为真实仓库地址）');
+    console.log('[Douyu Cleaner] v2.16.0 已加载（直播 video 定位 / 画质菜单悬停渲染适配 / 启动遮罩）');
 })();
