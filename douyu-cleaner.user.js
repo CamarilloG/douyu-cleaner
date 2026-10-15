@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.16.0
+// @version      2.17.0
 // @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（加速追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
 // @author       CamarilloG
-// @match        *://*.douyu.com/*
+// @match        *://www.douyu.com/*
 // @run-at       document-start
+// @noframes
 // @grant        none
 // @license      MIT
 // @homepageURL  https://github.com/CamarilloG/douyu-cleaner
@@ -773,10 +774,7 @@
         #dy-chat-toast.dy-show{ opacity:1; }
     `;
 
-    const styleEl = document.createElement('style');
-    styleEl.id = 'douyu-cleaner-style';
-    styleEl.textContent = css;
-    (document.head || document.documentElement).appendChild(styleEl);
+    /* v2.17: 广告屏蔽 + shell 样式只在直播间挂载，由 setRoomActive 按 URL 开关（见 § 4） */
 
     /* ================================================================
      * § 4. 工具
@@ -801,9 +799,10 @@
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
-    // 直播间路径：/<digits-or-letters>，排除 /directory /topic /search /user 等
-    const isLiveRoomUrl = () => /^\/[A-Za-z0-9_-]+\/?$/.test(location.pathname)
-        && !/^\/(directory|topic|search|user|cate|category|topic|gold|rank|cps|api|topic|game)/i.test(location.pathname);
+    // v2.17: 直播间只认 www.douyu.com/<纯数字房间号>。旧正则 /[A-Za-z0-9_-]+ 会把
+    // 分区页 /g_LOL、/client、/creator 等单段路径也当成直播间
+    const isLiveRoomUrl = () => location.hostname === 'www.douyu.com'
+        && /^\/\d+\/?$/.test(location.pathname);
 
     /* v2.16: 直播间专用样式，用独立 <style> 开关（斗鱼会重置 <html> 的 class，挂 class 不可靠）
        - 启动遮罩：document-start 即挂上，盖住 shell 建好之前的原生页面；播放器 reparent 完成
@@ -827,7 +826,9 @@
     const uncloak = () => setCloak(false);
     const setNoViewTransition = (on) => toggleStyle('douyu-cleaner-no-vt',
         `body *{ view-transition-name:none !important; }`, on);
+    const setRoomStyle = (on) => toggleStyle('douyu-cleaner-style', css, on);
     if (isLiveRoomUrl()) {
+        setRoomStyle(true);
         setCloak(true);
         setTimeout(uncloak, CLOAK_TIMEOUT_MS);
         setNoViewTransition(true);
@@ -2057,9 +2058,16 @@
             attributes: true, attributeFilter: ['class', 'style'],
         });
     };
-    // 立刻启动，不等 mount（mount 可能很晚，弹幕容器渲染更早）
-    if (document.body) startUnhide();
-    else document.addEventListener('DOMContentLoaded', startUnhide);
+    const stopUnhide = () => {
+        if (unhideOb) { unhideOb.disconnect(); unhideOb = null; }
+    };
+    // 直播间内立刻启动，不等 mount（mount 可能很晚，弹幕容器渲染更早）
+    const startUnhideWhenReady = () => {
+        if (!isLiveRoomUrl()) return;
+        if (document.body) startUnhide();
+        else document.addEventListener('DOMContentLoaded', startUnhide, { once: true });
+    };
+    startUnhideWhenReady();
 
     /* ================================================================
      * § 12. 挂载 / 卸载 / 重挂
@@ -2071,6 +2079,7 @@
         if (mountInFlight) { console.log('[Douyu Cleaner] mount skip: another mount in flight'); return; }
         mountInFlight = true;
         console.log('[Douyu Cleaner] mount start', location.pathname);
+        activateRoom();
         // 兜底：35s 后无论成功失败都释放 flag（防 waitFor 30s 超时后卡死）
         const flightTimer = setTimeout(() => { mountInFlight = false; }, 35000);
         const releaseFlight = () => { clearTimeout(flightTimer); mountInFlight = false; };
@@ -2162,6 +2171,7 @@
             } else {
                 console.log('[Douyu Cleaner] URL changed → non-room → unmount');
                 unmount();
+                deactivateRoom();
             }
             return;
         }
@@ -2198,12 +2208,34 @@
             for (const n of m.addedNodes) clean(n);
         }
     });
+    let cleanObOn = false;
     const startCleanOb = () => {
+        if (cleanObOn || !isLiveRoomUrl()) return;
+        cleanObOn = true;
         cleanOb.observe(document.documentElement, { childList: true, subtree: true });
         if (document.body) document.body.querySelectorAll('[class]').forEach(clean);
     };
+    const stopCleanOb = () => {
+        if (cleanObOn) { cleanOb.disconnect(); cleanObOn = false; }
+    };
     if (document.body) startCleanOb();
-    else document.addEventListener('DOMContentLoaded', startCleanOb);
+    else document.addEventListener('DOMContentLoaded', startCleanOb, { once: true });
+
+    /* v2.17: 直播间专属能力的总开关。脚本 @match 覆盖整个 www.douyu.com（斗鱼是 SPA，
+       从首页 / 分区站内跳进直播间时脚本不会重新注入），所以一切副作用都要按当前 URL 开关：
+       离开直播间 → 撤样式、停 DOM 清理，请求拦截在调用时按 URL 判断 */
+    function activateRoom() {
+        setRoomStyle(true);
+        startUnhideWhenReady();
+        startCleanOb();
+    }
+    function deactivateRoom() {
+        setRoomStyle(false);
+        setCloak(false);
+        setNoViewTransition(false);
+        stopUnhide();
+        stopCleanOb();
+    }
 
     // v2.15: 仅追加无歧义的「广告/活动数据」端点（返回 {} 安全）。
     // 不拦截 /front-publish/.../js/room/*.js 这类 webpack 分包（拿 JSON 顶替会让 chunk loader 抛错），
@@ -2212,14 +2244,14 @@
     const EMPTY_JSON_URL = 'data:application/json,%7B%7D';
     const _open = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-        if (typeof url === 'string' && blockUrlRe.test(url)) url = EMPTY_JSON_URL;
+        if (typeof url === 'string' && isLiveRoomUrl() && blockUrlRe.test(url)) url = EMPTY_JSON_URL;
         return _open.call(this, method, url, ...rest);
     };
     const _fetch = window.fetch;
     window.fetch = function (input, init) {
         try {
             const u = typeof input === 'string' ? input : (input && input.url) || '';
-            if (blockUrlRe.test(u)) {
+            if (isLiveRoomUrl() && blockUrlRe.test(u)) {
                 return Promise.resolve(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
             }
         } catch (e) { }
@@ -2235,5 +2267,5 @@
         mount();
     }
 
-    console.log('[Douyu Cleaner] v2.16.0 已加载（直播 video 定位 / 画质菜单悬停渲染适配 / 启动遮罩）');
+    console.log('[Douyu Cleaner] v2.17.0 已加载（仅作用于直播间 www.douyu.com/<房间号>）', isLiveRoomUrl() ? '· 当前是直播间' : '· 当前不是直播间，待命');
 })();
