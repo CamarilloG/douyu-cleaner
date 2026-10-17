@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.17.0
-// @description  彻底重写直播间前端：极简 shell（左视频 + 右弹幕）/ 自动最高画质 / 实时低延迟（加速追帧）/ 自定义评论区（DOM 镜像 + 原生发送转发）。保留原生 mpegts 播放器与 WebSocket，仅 reparent 与控制 <video> 属性。
+// @version      2.18.0
+// @description  原生弹幕优先：悬停视频飞行弹幕显示 +1 复读，保留官方渲染与发送；极简观看、画质选择、低缓冲追帧，自建弹幕仅作为可选备用。
 // @author       CamarilloG
 // @match        *://www.douyu.com/*
 // @run-at       document-start
@@ -14,6 +14,234 @@
 // @updateURL    https://raw.githubusercontent.com/CamarilloG/douyu-cleaner/main/douyu-cleaner.user.js
 // @downloadURL  https://raw.githubusercontent.com/CamarilloG/douyu-cleaner/main/douyu-cleaner.user.js
 // ==/UserScript==
+
+// BEGIN SHARED NATIVE REPEAT
+/* Native flying-danmaku interaction. Never copies or redraws the danmaku layer. */
+(function (global) {
+    'use strict';
+
+    function inside(rect, x, y, padding = 0) {
+        return rect && x >= rect.left - padding && x <= rect.right + padding &&
+            y >= rect.top - padding && y <= rect.bottom + padding;
+    }
+
+    function readable(item, readText) {
+        // A platform adapter must additionally exclude badges, gifts and system messages.
+        if (!item) return null;
+        const text = readText(item);
+        return typeof text === 'string' && text.trim() && !text.includes('\uFFFC') ? text.trim() : null;
+    }
+
+    function hitTest(items, x, y, readText, rootRect) {
+        if (!inside(rootRect, x, y)) return null;
+        // Prefer the last painted item, and cap work on very busy rooms.
+        const list = Array.from(items).slice(-500);
+        for (let i = list.length - 1; i >= 0; i--) {
+            const item = list[i];
+            if (!item.isConnected) continue;
+            const rect = item.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0 || !inside(rect, x, y)) continue;
+            const style = item.ownerDocument.defaultView.getComputedStyle(item);
+            if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) continue;
+            const text = readable(item, readText);
+            if (text) return { item, text, rect };
+        }
+        return null;
+    }
+
+    function createSender(send, roomKey, now = Date.now, cooldownMs = 1200) {
+        let pending = false;
+        let destroyed = false;
+        let lastAttempt = -Infinity;
+        return {
+            destroy() { destroyed = true; },
+            async submit(snapshot) {
+                if (destroyed || snapshot.room !== roomKey()) return { status: 'failed', message: '房间已变化，请重新选择弹幕' };
+                if (pending || now() - lastAttempt < cooldownMs) return { status: 'failed', message: '请稍后再试' };
+                pending = true;
+                lastAttempt = now();
+                try {
+                    const result = await send(snapshot.text);
+                    if (result && ['sent', 'submitted', 'failed'].includes(result.status)) return result;
+                    return { status: 'submitted', message: '已提交，请查看原站发送结果' };
+                } catch (error) {
+                    return { status: 'failed', message: '发送失败，请在原站确认登录、禁言和发送冷却状态' };
+                } finally {
+                    pending = false;
+                }
+            }
+        };
+    }
+
+    function mount(options) {
+        const { root, readText, send, roomKey } = options;
+        if (!root || !root.ownerDocument || typeof readText !== 'function' || typeof send !== 'function' || typeof roomKey !== 'function') {
+            throw new TypeError('Native repeat requires root, readText, send and roomKey');
+        }
+        const doc = root.ownerDocument;
+        const win = doc.defaultView;
+        const sender = createSender(send, roomKey);
+        const layer = doc.createElement('div');
+        layer.className = 'lc-native-repeat-layer';
+        layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2147483646;overflow:visible;';
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.textContent = '+1';
+        button.hidden = true;
+        button.style.cssText = 'position:absolute;pointer-events:auto;min-width:36px;height:28px;padding:0 8px;border:1px solid #ffffff99;border-radius:6px;background:#17191feb;color:white;font:600 14px/26px sans-serif;cursor:pointer;box-shadow:0 2px 8px #0008;white-space:nowrap;';
+        const notice = doc.createElement('div');
+        notice.setAttribute('role', 'status');
+        notice.style.cssText = 'position:absolute;left:50%;bottom:64px;transform:translateX(-50%);max-width:85%;padding:8px 12px;border-radius:6px;background:#17191feb;color:white;font:14px/1.5 sans-serif;display:none;';
+        layer.append(button, notice);
+        let host = null, restorePosition = null, selected = null, resume = [], frame = 0;
+        let hideTimer = 0, noticeTimer = 0, destroyed = false, point = null, sending = false;
+        const initialRoom = roomKey();
+
+        function attach() {
+            const full = doc.fullscreenElement;
+            const next = full && root.contains(full) ? full : root;
+            if (host === next) return;
+            clear();
+            if (restorePosition) restorePosition();
+            host = next;
+            restorePosition = null;
+            if (win.getComputedStyle(host).position === 'static') {
+                const old = host.style.position;
+                host.style.position = 'relative';
+                restorePosition = () => { if (host.style.position === 'relative') host.style.position = old; };
+            }
+            host.appendChild(layer);
+        }
+
+        function clear() {
+            win.clearTimeout(hideTimer);
+            hideTimer = 0;
+            selected = null;
+            button.hidden = true;
+            for (const animation of resume) {
+                try { if (animation.playState === 'paused') animation.play(); } catch (_) { /* removed animation */ }
+            }
+            resume = [];
+        }
+
+        function showNotice(message) {
+            notice.textContent = message;
+            notice.style.display = 'block';
+            win.clearTimeout(noticeTimer);
+            noticeTimer = win.setTimeout(() => { notice.style.display = 'none'; }, 3000);
+        }
+
+        function select(hit) {
+            clear();
+            selected = { ...hit, room: roomKey(), selectedAt: Date.now() };
+            // Pause only running Web Animations. JS-driven transforms remain untouched.
+            if (hit.item.getAnimations) {
+                for (const animation of hit.item.getAnimations()) {
+                    if (animation.playState === 'running') {
+                        try { animation.pause(); resume.push(animation); } catch (_) { /* unsupported animation */ }
+                    }
+                }
+            }
+            const bounds = host.getBoundingClientRect();
+            const sx = bounds.width ? (host.clientWidth || bounds.width) / bounds.width : 1;
+            const sy = bounds.height ? (host.clientHeight || bounds.height) / bounds.height : 1;
+            // Anchor to the selected snapshot so a moving DOM item cannot change the click target.
+            button.style.left = Math.max(0, Math.min((hit.rect.right - bounds.left + 5) * sx, (host.clientWidth || bounds.width) - 42)) + 'px';
+            button.style.top = Math.max(0, Math.min((hit.rect.top - bounds.top) * sy, (host.clientHeight || bounds.height) - 30)) + 'px';
+            button.title = '复读：' + hit.text;
+            button.setAttribute('aria-label', '复读弹幕：' + hit.text);
+            button.hidden = false;
+        }
+
+        function inspect() {
+            frame = 0;
+            if (destroyed || !point || sending) return;
+            if (roomKey() !== initialRoom) { clear(); return; }
+            const { x, y } = point;
+            if (selected) {
+                const buttonRect = button.getBoundingClientRect();
+                const buttonActive = inside(buttonRect, x, y, 8) || doc.activeElement === button;
+                if (!selected.item.isConnected || (!buttonActive && readable(selected.item, readText) !== selected.text)) {
+                    clear();
+                } else if (buttonActive || (inside(selected.rect, x, y, 8) &&
+                    (Date.now() - selected.selectedAt < 2000 || inside(selected.item.getBoundingClientRect(), x, y, 8)))) {
+                    win.clearTimeout(hideTimer); hideTimer = 0; return;
+                }
+            }
+            const items = options.getItems ? options.getItems() : root.querySelectorAll(options.itemSelector);
+            const hit = hitTest(items, x, y, readText, host.getBoundingClientRect());
+            if (hit) select(hit);
+            else if (selected && !hideTimer) hideTimer = win.setTimeout(clear, 350);
+        }
+
+        function move(event) {
+            if (event.pointerType === 'touch') return;
+            if (!host || !inside(host.getBoundingClientRect(), event.clientX, event.clientY)) { leave(event); return; }
+            point = { x: event.clientX, y: event.clientY };
+            if (!frame) frame = win.requestAnimationFrame(inspect);
+        }
+        function leave(event) {
+            if (layer.contains(event.relatedTarget)) return;
+            point = null;
+            if (!hideTimer) hideTimer = win.setTimeout(clear, 350);
+        }
+        function buttonEnter() { win.clearTimeout(hideTimer); hideTimer = 0; }
+        function stop(event) { event.stopPropagation(); }
+        async function click(event) {
+            event.preventDefault(); event.stopPropagation();
+            if (!selected || sending) return;
+            const snapshot = { text: selected.text, room: selected.room };
+            sending = true;
+            button.disabled = true;
+            const result = await sender.submit(snapshot);
+            sending = false;
+            button.disabled = false;
+            if (destroyed || snapshot.room !== roomKey()) return;
+            showNotice(result.message || ({ sent: '已发送', submitted: '已提交，请查看原站发送结果', failed: '发送失败' })[result.status]);
+            clear();
+        }
+        function contextChanged() { clear(); }
+        // Document capture also handles a fullscreen native layer with pointer-events:none:
+        // its events can target the page rather than the (smaller) original player root.
+        doc.addEventListener('pointermove', move, true);
+        doc.addEventListener('pointerleave', leave);
+        button.addEventListener('pointerenter', buttonEnter);
+        button.addEventListener('pointerdown', stop);
+        button.addEventListener('dblclick', event => { event.preventDefault(); event.stopPropagation(); });
+        button.addEventListener('click', click);
+        doc.addEventListener('fullscreenchange', attach);
+        win.addEventListener('resize', contextChanged);
+        win.addEventListener('scroll', contextChanged, true);
+        // Hover is the entry point, but the revealed control can also be focused.
+        button.addEventListener('focus', buttonEnter);
+        button.addEventListener('blur', contextChanged);
+        attach();
+        // New native messages also pass under a stationary cursor. Poll only while in the player.
+        const hoverTimer = win.setInterval(() => { if (point && !frame) frame = win.requestAnimationFrame(inspect); }, 180);
+        return {
+            destroy() {
+                if (destroyed) return;
+                destroyed = true;
+                sender.destroy(); clear();
+                win.cancelAnimationFrame(frame);
+                win.clearTimeout(noticeTimer);
+                win.clearInterval(hoverTimer);
+                doc.removeEventListener('pointermove', move, true);
+                doc.removeEventListener('pointerleave', leave);
+                doc.removeEventListener('fullscreenchange', attach);
+                win.removeEventListener('resize', contextChanged);
+                win.removeEventListener('scroll', contextChanged, true);
+                layer.remove();
+                if (restorePosition) restorePosition();
+            }
+        };
+    }
+    const api = { mount, hitTest, createSender };
+    if (typeof module === 'object' && module.exports) module.exports = api;
+    global.LiveCleanerNativeRepeat = api;
+})(typeof globalThis === 'object' ? globalThis : window);
+
+// END SHARED NATIVE REPEAT
 
 /*
   v2.8 设计（v2.0 思路 + 从 v2.1~v2.6 教训中得出的"弹幕零干预"原则）：
@@ -107,7 +335,8 @@
         //   'custom' — 显示自建飞行弹幕，隐藏原生（避免双倍）
         //   'native' — 显示斗鱼原生弹幕，不 spawn 自建
         //   'off'    — 都隐藏
-        danmuMode: 'custom',
+        danmuMode: 'native',
+        nativeFirstVersion: 1,
         // v2.13: 用户偏好的画质档位文本（如 "蓝光4M"）。null = 自动选最高
         quality: null,
         // v2.13: 自建飞行弹幕的可调参数
@@ -133,9 +362,9 @@
         { key: 'pill',   label: '气泡底框' },
     ];
     const DANMU_STYLE_KEYS = DANMU_STYLES.map(s => s.key);
-    const DANMU_MODES = ['custom', 'native', 'off'];
+    const DANMU_MODES = ['native', 'off', 'custom'];
     const DANMU_MODE_TIPS = {
-        custom: '弹幕：自建 (按 D 切换)',
+        custom: '弹幕：自建备用 (按 D 切换)',
         native: '弹幕：原生 (按 D 切换)',
         off:    '弹幕：关闭 (按 D 切换)',
     };
@@ -146,6 +375,12 @@
             const clean = {};
             for (const k of Object.keys(DEFAULT_PREFS)) {
                 if (k in raw) clean[k] = raw[k];
+            }
+            // 旧版默认 custom 没有主动选择标记；升级优先官方，保留主动关闭。
+            if (raw.nativeFirstVersion !== 1) {
+                clean.danmuMode = raw.danmuMode === 'off' ? 'off' : 'native';
+                clean.nativeFirstVersion = 1;
+                localStorage.setItem(PREF_KEY, JSON.stringify(Object.assign({}, DEFAULT_PREFS, clean)));
             }
             return Object.assign({}, DEFAULT_PREFS, clean);
         } catch (e) { return Object.assign({}, DEFAULT_PREFS); }
@@ -288,15 +523,7 @@
         }
         /* 弹幕容器：完全不干预样式，原生 React 管。但加两条最小必要 fix： */
 
-        /* ⭐ v2.8 核心 fix：斗鱼"isNew" A/B 版本会把弹幕父容器 .comment-XXX 加
-           hidden-XXXX modifier 让 display:none。飞行弹幕子 DOM 实际存在（".danmuItem-"
-           节点带弹幕文字内容）但全被父级隐藏，看起来"没弹幕"。强制 unhide。
-           v2.9 升级：去掉 #dy-shell-video 限定，全局生效（防 reparent 时序未完成时漏匹配）。
-           另外 v2.9 还有 JS MutationObserver 兜底直接 set inline style（防 React inline display:none）。 */
-        [class*="comment-"][class*="hidden-"]:not([class*="sendComment"]):not([class*="DanmuRecharge"]){
-            display: block !important;
-            visibility: visible !important;
-        }
+        /* 官方弹幕可见性由原站开关管理，不再覆盖 hidden 类或内联样式。 */
 
         /* ⭐ v2.10：自建飞行弹幕层。
            原因：斗鱼 isNew A/B 版本根本不渲染飞行弹幕 DOM（用户实测
@@ -447,6 +674,8 @@
         #dy-shell-controlbar, #dy-shell-controlbar *,
         #dy-chat-expand-btn,
         #dy-plugin-panel, #dy-plugin-panel *{ cursor: default; }
+        /* 原生模式给官方底部控制栏留出操作空间。 */
+        #dy-shell[data-danmu-mode="native"] #dy-shell-controlbar{ bottom:54px; }
         #dy-shell-controlbar .dy-btn{
             background: none; border: none; color: #e6e6e6;
             font-size: 18px; line-height: 1;
@@ -779,16 +1008,28 @@
     /* ================================================================
      * § 4. 工具
      * ================================================================ */
+    let roomEpoch = 0;
+    const pendingWaits = new Set();
     const waitFor = (sel, timeoutMs = 30000) => new Promise(resolve => {
         const found = document.querySelector(sel);
         if (found) return resolve(found);
-        const start = Date.now();
+        const epoch = roomEpoch;
+        let timer;
+        const finish = value => {
+            ob.disconnect();
+            clearTimeout(timer);
+            pendingWaits.delete(cancel);
+            resolve(value);
+        };
+        const cancel = () => finish(null);
         const ob = new MutationObserver(() => {
+            if (epoch !== roomEpoch) return cancel();
             const el = document.querySelector(sel);
-            if (el) { ob.disconnect(); resolve(el); }
-            else if (Date.now() - start > timeoutMs) { ob.disconnect(); resolve(null); }
+            if (el) finish(el);
         });
+        pendingWaits.add(cancel);
         ob.observe(document.documentElement, { childList: true, subtree: true });
+        timer = setTimeout(cancel, timeoutMs);
     });
     /* v2.16: 直播 <video> 定位。登录态房间页下方的「动态」PostCard 里嵌有多个 <video>
        且在 DOM 中排在播放器之前，裸 document.querySelector('video') 会拿到帖子视频。 */
@@ -901,7 +1142,10 @@
             this.host = host;
             this.stickToBottom = true;
             this.unreadCount = 0;
-            this.lastUserSentText = null;
+            this.destroyed = false;
+            this.sending = false;
+            this.roomKey = location.pathname;
+            this.epoch = roomEpoch;
             this.boundList = null;
             this.listOb = null;
             this._build();
@@ -979,9 +1223,8 @@
                 div.className = 'dy-msg dy-msg-system';
                 div.textContent = parsed.text;
             } else {
-                const isSelf = this.lastUserSentText && parsed.text === this.lastUserSentText;
-                if (isSelf) this.lastUserSentText = null;
-                div.className = isSelf ? 'dy-msg dy-msg-self' : 'dy-msg';
+                // 同文不等于同一用户；没有权威用户身份时不标成自己的消息。
+                div.className = 'dy-msg';
                 div.innerHTML = `<span class="dy-msg-nick" style="color:${parsed.nickColor}">${escapeHtml(parsed.nick)}</span><span class="dy-msg-text" style="color:${parsed.textColor}">${escapeHtml(parsed.text)}</span>`;
             }
             this.listEl.appendChild(div);
@@ -1027,34 +1270,61 @@
             });
             this.listOb.observe(list, { childList: true });
         }
-        send(text) {
+        async send(text) {
+            const failed = message => { if (!this.destroyed) this._toast(message); return { status: 'failed', message }; };
+            if (this.destroyed || this.epoch !== roomEpoch || location.pathname !== this.roomKey) return failed('房间已切换，请重新选择弹幕');
+            if (this.sending) return failed('正在提交，请稍候');
             const native = document.querySelector(CFG.SEL_CHAT_INPUT);
             const btn = document.querySelector(CFG.SEL_CHAT_SEND);
-            if (!native || !btn) { this._toast('找不到原生输入框'); return; }
-            if (btn.hasAttribute('disabled')) { this._toast('未登录 / 禁言 / 冷却'); return; }
+            if (!native || !btn) return failed('找不到官方发送框，请使用官方界面');
+            const blocked = () => btn.disabled || btn.getAttribute('aria-disabled') === 'true' || native.getAttribute('contenteditable') === 'false';
+            if (blocked()) return failed('官方发送暂不可用，请检查登录、禁言或冷却提示');
+            text = String(text || '').trim();
+            if (!text) return failed('弹幕正文为空');
+            const limit = Number(native.getAttribute('maxlength'));
+            if (limit > 0 && text.length > limit) return failed('超过官方输入框长度限制');
+            // 不覆盖官方草稿；自建输入框的草稿也始终保留，等待用户核对提交结果。
+            if (native.textContent.trim()) return failed('官方输入框有草稿，请先处理草稿再复读');
+            this.sending = true;
+            this.sendBtn.disabled = true;
+            const focused = document.activeElement;
+            let submitted = false;
             try {
                 native.focus();
                 const sel = window.getSelection();
-                sel.removeAllRanges();
                 const r = document.createRange();
                 r.selectNodeContents(native);
+                sel.removeAllRanges();
                 sel.addRange(r);
-                const ok = document.execCommand('insertText', false, text);
-                if (!ok) {
+                if (!document.execCommand('insertText', false, text)) {
                     native.textContent = text;
                     native.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
                 }
-                this.lastUserSentText = text;
-                setTimeout(() => {
-                    btn.click();
-                    this.inputEl.value = '';
-                    this.inputEl.focus();
-                }, 80);
+                await new Promise(resolve => setTimeout(resolve, 80));
+                if (this.destroyed || this.epoch !== roomEpoch || location.pathname !== this.roomKey ||
+                    !native.isConnected || !btn.isConnected || blocked()) return failed('发送已取消：房间或官方发送状态已变化');
+                if (native.textContent !== text) return failed('官方输入框内容发生变化，已取消提交');
+                btn.click();
+                submitted = true;
+                const message = '已提交至官方发送入口，请核对聊天区结果；草稿已保留';
+                this._toast(message, 3000);
+                return { status: 'submitted', message };
             } catch (e) {
-                this._toast('发送失败：' + (e.message || e));
+                return failed('提交失败：' + (e.message || e));
+            } finally {
+                // 取消时只撤回本次写入，绝不擦除用户后来修改的内容。
+                if (!submitted && native.isConnected && native.textContent === text) {
+                    native.textContent = '';
+                    native.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+                }
+                if (focused && focused.isConnected && document.activeElement === native) focused.focus();
+                this.sending = false;
+                this.sendBtn.disabled = false;
             }
         }
         destroy() {
+            this.destroyed = true;
+            clearTimeout(this._toastTimer);
             if (this.listOb) this.listOb.disconnect();
             if (this.root && this.root.parentNode) this.root.parentNode.removeChild(this.root);
         }
@@ -1277,8 +1547,10 @@
      * § 8. Player reparent
      * ================================================================ */
     const movePlayerIntoShell = async () => {
+        const owner = shell;
+        const epoch = roomEpoch;
         const caseEl = await waitFor(CFG.SEL_PLAYER_CASE, 30000);
-        if (!caseEl || !shell) return false;
+        if (!caseEl || !shell || shell !== owner || epoch !== roomEpoch) return false;
         if (caseEl.parentElement === shell.videoHost) { shell.playerMoved = true; return true; }
         originalPlayerParent = caseEl.parentElement;
         originalPlayerNext = caseEl.nextSibling;
@@ -1375,8 +1647,9 @@
 
     // 应用画质偏好（替代原 pickHighestQuality）
     const applyQualityPref = async () => {
+        const epoch = roomEpoch;
         const rate = await waitFor(CFG.SEL_RATE, 20000);
-        if (!rate) return false;
+        if (!rate || epoch !== roomEpoch) return false;
         const tryApply = () => withQualityMenuOpen(rateEl => {
             const items = readQualityItems(rateEl);
             if (!items.length) return false;
@@ -1395,6 +1668,7 @@
         return new Promise(resolve => {
             let tries = 0;
             const tid = setInterval(() => {
+                if (epoch !== roomEpoch) { clearInterval(tid); resolve(false); return; }
                 const ok = tryApply();
                 tries++;
                 if (ok || tries > 6) { clearInterval(tid); resolve(ok); }
@@ -1422,7 +1696,7 @@
         // 折叠状态
         shell.root.classList.toggle('dy-chat-collapsed', !!prefs.chatCollapsed);
         // ⭐ v2.12 弹幕 3 态开关：data-danmu-mode 属性驱动 CSS 切换原生/自建
-        const mode = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'custom';
+        const mode = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'native';
         shell.root.setAttribute('data-danmu-mode', mode);
         const danmuBtn = shell.controlbar.querySelector('[data-act="danmu-toggle"]');
         if (danmuBtn) {
@@ -1557,6 +1831,7 @@
         if (h > 0) shell.root.style.setProperty('--dy-header-h', h + 'px');
     };
     const setupNativeHeader = async () => {
+        const owner = shell;
         if (!shell) return;
         const tryOnce = () => findNativeHeader();
         let header = tryOnce();
@@ -1565,7 +1840,7 @@
             await waitFor(CFG.SEL_HEADER_CANDIDATES[0], 8000).catch(() => null);
             header = tryOnce();
         }
-        if (!header || !shell) return;
+        if (!header || !shell || shell !== owner) return;
         shell.nativeHeader = header;
         // z-index 在 applyPrefs 内随 headerVisible 切换：开 → 10000 越过 shell(9999)
         // 关 → 移除 inline，恢复原生 z 让 shell 自然覆盖（避免不可见 header 抢点击）
@@ -1681,7 +1956,7 @@
                 }
                 case 'danmu-toggle': {
                     // v2.12: 循环 custom → native → off → custom
-                    const cur = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'custom';
+                    const cur = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'native';
                     const next = DANMU_MODES[(DANMU_MODES.indexOf(cur) + 1) % DANMU_MODES.length];
                     setPref('danmuMode', next);
                     break;
@@ -1816,9 +2091,10 @@
         }
 
         // === v2.13 监听原生 rate 下拉的 class 变化，实时同步画质 label ===
+        const controlsOwner = shell;
         const setupRateObserver = async () => {
             const rate = await waitFor(CFG.SEL_RATE, 30000);
-            if (!rate || !shell) return;
+            if (!rate || !shell || shell !== controlsOwner) return;
             if (shell._rateOb) try { shell._rateOb.disconnect(); } catch (e) {}
             const ob = new MutationObserver(() => updateQualityLabel());
             ob.observe(rate, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
@@ -1900,7 +2176,7 @@
                     showUI();
                 } else if (e.code === 'KeyD') {
                     e.preventDefault();
-                    const cur = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'custom';
+                    const cur = DANMU_MODES.includes(prefs.danmuMode) ? prefs.danmuMode : 'native';
                     const next = DANMU_MODES[(DANMU_MODES.indexOf(cur) + 1) % DANMU_MODES.length];
                     setPref('danmuMode', next);
                     showUI();
@@ -2003,91 +2279,55 @@
      * § 11. 弹幕绑定
      * ================================================================ */
     const bindChat = async () => {
-        if (!chat) return;
+        const owner = chat;
+        const epoch = roomEpoch;
+        if (!owner) return;
         const list = await waitFor(CFG.SEL_BARRAGE, 30000);
-        if (list) chat.bindBarrageList(list);
+        if (list && chat === owner && epoch === roomEpoch) owner.bindBarrageList(list);
     };
-
-    /* ================================================================
-     * § 11.5 ⭐ v2.9 核心：强制 unhide 飞行弹幕父容器
-     *
-     * 斗鱼"app-isNew" A/B 版本给 .comment-XXX 加 hidden-XXXX modifier 让
-     * display:none，飞行弹幕 DOM 实际存在但全被父级隐藏。CSS unhide 在某些
-     * 时序/specificity 场景下不够稳，这里用 JS 兜底：
-     *   - 启动时立即扫一遍，对所有 .comment-XXX hidden- 设置 inline
-     *     style.setProperty('display', 'block', 'important')
-     *   - MutationObserver 持续监听 class/style 属性变化，再次遇到 hidden-
-     *     立刻强制 inline style（inline + !important 优先级最高，覆盖一切）
-     * ================================================================ */
-    const forceUnhideEl = (el) => {
-        if (!el || el.nodeType !== 1) return;
-        const cls = (el.className || '').toString();
-        if (!cls.includes('comment-')) return;
-        if (cls.includes('sendComment')) return;
-        if (!cls.match(/hidden-/)) return;
-        try {
-            el.style.setProperty('display', 'block', 'important');
-            el.style.setProperty('visibility', 'visible', 'important');
-        } catch (e) { /* readonly element */ }
-    };
-    const scanAndUnhide = (root) => {
-        if (!root || !root.querySelectorAll) return;
-        root.querySelectorAll('[class*="comment-"][class*="hidden-"]').forEach(forceUnhideEl);
-    };
-    let unhideOb = null;
-    const startUnhide = () => {
-        if (unhideOb) return;
-        // 启动时先扫一遍
-        scanAndUnhide(document);
-        unhideOb = new MutationObserver(muts => {
-            for (const m of muts) {
-                if (m.type === 'attributes' && m.target.nodeType === 1) {
-                    forceUnhideEl(m.target);
-                } else if (m.type === 'childList') {
-                    for (const n of m.addedNodes) {
-                        if (n.nodeType === 1) {
-                            forceUnhideEl(n);
-                            scanAndUnhide(n);
-                        }
-                    }
-                }
-            }
-        });
-        unhideOb.observe(document.documentElement, {
-            childList: true, subtree: true,
-            attributes: true, attributeFilter: ['class', 'style'],
-        });
-    };
-    const stopUnhide = () => {
-        if (unhideOb) { unhideOb.disconnect(); unhideOb = null; }
-    };
-    // 直播间内立刻启动，不等 mount（mount 可能很晚，弹幕容器渲染更早）
-    const startUnhideWhenReady = () => {
-        if (!isLiveRoomUrl()) return;
-        if (document.body) startUnhide();
-        else document.addEventListener('DOMContentLoaded', startUnhide, { once: true });
-    };
-    startUnhideWhenReady();
 
     /* ================================================================
      * § 12. 挂载 / 卸载 / 重挂
      * ================================================================ */
+    let nativeRepeat = null;
+    const mountNativeRepeat = () => {
+        if (nativeRepeat) nativeRepeat.destroy();
+        if (!shell || !window.LiveCleanerNativeRepeat) return;
+        const owner = chat;
+        nativeRepeat = window.LiveCleanerNativeRepeat.mount({
+            root: shell.videoHost,
+            // 2026-10-17 公开直播间核实；排除 AI 看点、礼物等非聊天条目。
+            itemSelector: '[class*="danmuItem-"][class*="scroll-"][data-comment-uuid]',
+            readText: item => {
+                if (prefs.danmuMode !== 'native') return null;
+                const body = item.querySelector('[class*="textWrap-"]');
+                if (!body || body.children.length) return null;
+                return body.textContent.trim() || null;
+            },
+            send: text => owner.send(text),
+            roomKey: () => location.pathname,
+        });
+    };
     let mountInFlight = false;
     const mount = async () => {
         if (!isLiveRoomUrl()) { console.log('[Douyu Cleaner] mount skip: not live room', location.pathname); return; }
         if (document.getElementById('dy-shell')) { console.log('[Douyu Cleaner] mount skip: shell exists'); return; }
         if (mountInFlight) { console.log('[Douyu Cleaner] mount skip: another mount in flight'); return; }
         mountInFlight = true;
+        const epoch = roomEpoch;
+        const room = location.pathname;
         console.log('[Douyu Cleaner] mount start', location.pathname);
         activateRoom();
         // 兜底：35s 后无论成功失败都释放 flag（防 waitFor 30s 超时后卡死）
-        const flightTimer = setTimeout(() => { mountInFlight = false; }, 35000);
-        const releaseFlight = () => { clearTimeout(flightTimer); mountInFlight = false; };
+        const flightTimer = setTimeout(() => { if (epoch === roomEpoch) mountInFlight = false; }, 35000);
+        const releaseFlight = () => { clearTimeout(flightTimer); if (epoch === roomEpoch) mountInFlight = false; };
         setNoViewTransition(true);
         buildShell();
         chat = new ChatPanel(shell.chatHost);
         bindChatCollapseBtn();
         await movePlayerIntoShell();
+        if (epoch !== roomEpoch || room !== location.pathname || !shell) { releaseFlight(); return; }
+        mountNativeRepeat();
         uncloak();
         bindControls();
         bindChat();
@@ -2095,9 +2335,10 @@
         setupNativeHeader();      // v2.14: 测量并接管原生顶栏
         startLatencyChase();
         releaseFlight();
-        console.log('[Douyu Cleaner] v2.14 shell mounted ✓');
+        console.log('[Douyu Cleaner] v2.18.0 shell mounted ✓');
         // 诊断：mount 完成后 2s 报告弹幕容器状态，方便排查"弹幕没显示"
         setTimeout(() => {
+            if (epoch !== roomEpoch || room !== location.pathname) return;
             const comment = document.querySelector('[class*="comment-"]:not([class*="sendComment"])');
             const danmu = document.querySelector('[class*=" danmu-"]:not([class*="danmuItem"]):not([class*="showdanmu"]):not([class*="danmuModels"]):not([class*="danmuTips"]):not([class*="danmuReport"]):not([class*="sendDanmu"]):not([class*="simpleDanmu"])');
             const items = document.querySelectorAll('[class*="danmuItem-"]').length;
@@ -2113,6 +2354,10 @@
         }, 2000);
     };
     const unmount = () => {
+        roomEpoch++;
+        mountInFlight = false;
+        for (const cancel of [...pendingWaits]) cancel();
+        if (nativeRepeat) { nativeRepeat.destroy(); nativeRepeat = null; }
         // 先停 guard：下面把 player case 搬回原位时不能被它当成「新播放器」接管回来
         if (shell && shell._guardOb) { try { shell._guardOb.disconnect(); } catch (e) {} }
         stopLatencyChase();
@@ -2137,11 +2382,13 @@
     };
     const remount = async () => {
         unmount();
+        const epoch = roomEpoch;
         await new Promise(r => setTimeout(r, 1200));
+        if (epoch !== roomEpoch) return;
         await mount();
         // 房间切换后 Barrage-list 会被重建，循环重绑
         const tryRebind = (tries = 0) => {
-            if (!chat) return;
+            if (!chat || epoch !== roomEpoch) return;
             const list = document.querySelector(CFG.SEL_BARRAGE);
             if (list && list !== chat.boundList) { chat.bindBarrageList(list); return; }
             if (tries < 15) setTimeout(() => tryRebind(tries + 1), 800);
@@ -2226,14 +2473,12 @@
        离开直播间 → 撤样式、停 DOM 清理，请求拦截在调用时按 URL 判断 */
     function activateRoom() {
         setRoomStyle(true);
-        startUnhideWhenReady();
         startCleanOb();
     }
     function deactivateRoom() {
         setRoomStyle(false);
         setCloak(false);
         setNoViewTransition(false);
-        stopUnhide();
         stopCleanOb();
     }
 

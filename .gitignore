@@ -13,3 +13,5 @@
 # Logs / temp
 *.log
 .tmp/
+node_modules/
+test-results/

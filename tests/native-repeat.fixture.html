@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native danmaku hover fixture</title>
+<style>
+body { background:#222; color:#fff; font:16px sans-serif; }
+#player { position:relative; width:640px; height:360px; background:#111; }
+#native { position:absolute; inset:0; pointer-events:none; }
+.danmaku { position:absolute; top:100px; left:120px; white-space:nowrap; pointer-events:none; }
+.moving { top:180px; animation:slide 10s linear infinite; }
+@keyframes slide { from { transform:translateX(0); } to { transform:translateX(300px); } }
+</style>
+<div id="player"><div id="native"><span class="danmaku">这波操作太秀了</span><span class="danmaku moving">原生移动弹幕</span></div></div>
+<input id="draft" value="还没写完的草稿">
+<script src="../src/native-repeat.js"></script>
+<script>
+window.sent = [];
+window.room = 'fixture';
+window.repeat = LiveCleanerNativeRepeat.mount({
+    root: document.querySelector('#player'), itemSelector: '.danmaku',
+    readText: el => el.textContent, roomKey: () => window.room,
+    send: async text => { window.sent.push(text); return {status:'submitted'}; }
+});
+</script>
