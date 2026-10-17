@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>虎牙完整布局离线验收</title>
+<style>
+body { margin:0; background:#eee; font:16px sans-serif; }
+#J_roomHeader { height:64px; }
+.room-core { display:flex; }
+.room-core-l { width:960px; }
+.room-core-r { width:340px; }
+#J_playerMain { width:960px; height:540px; background:#172032; position:relative; }
+#J_playerMain video { width:100%; height:100%; }
+#danmudiv { position:absolute; inset:0; pointer-events:none; }
+.danmu-item { position:absolute; top:100px; left:150px; color:white; white-space:nowrap; pointer-events:none; }
+#official-mouse-layer { position:absolute; inset:0; z-index:5; }
+#player-ext-wrap, #player-ext-wrap-under-barrage { position:absolute; inset:0; z-index:10; pointer-events:none; }
+#player-ext-wrap iframe { width:100%; height:100%; background:white; }
+#chatRoom { height:540px; }
+#J_RoomChatSpeaker { padding:12px; }
+#chat-room__list { height:420px; overflow:auto; }
+</style>
+<main id="J_mainRoom">
+  <header id="J_roomHeader">原生房间标题</header>
+  <div class="room-core">
+    <div class="room-core-l" id="original-player-parent">
+      <div id="before-player">播放器前</div>
+      <div id="J_playerMain"><div id="player-wrap"><video id="official-video"></video><div id="danmudiv"><div class="danmu-item"><img style="display:none"><span>原生视频弹幕</span></div></div></div></div>
+      <div id="after-player">播放器后</div>
+    </div>
+    <div class="room-core-r"><div class="room-sidebar"><div id="chatRoom">
+      <div id="chat-room__list"><div data-cmid="fixture-1"><div class="msg-normal"><span class="name J_userMenu">观众甲</span><span class="colon">:</span><span class="msg J_msg">第一条评论</span></div></div></div>
+      <div id="J_RoomChatSpeaker"><textarea id="pub_msg_input" maxlength="100"></textarea><button id="msg_send_bt">官方发送</button></div>
+    </div></div></div>
+  </div>
+</main>
+<script>
+window.officialVideo = document.querySelector('video');
+window.officialDanmaku = document.querySelector('#danmudiv');
+window.officialPlayer = document.querySelector('#J_playerMain');
+window.sentMessages = [];
+window.playCount = 0; window.pauseCount = 0; window.fixturePaused = true;
+document.querySelector('#player-wrap').insertAdjacentHTML('beforeend', '<div id="official-mouse-layer"></div><div id="player-ext-wrap"><iframe title="活动扩展" src="https://activity.ext.huya.com/fixture.html" srcdoc="<body style=background:white></body>"></iframe></div><div id="player-ext-wrap-under-barrage"></div>');
+window.nativePointerMoves = 0;
+document.querySelector('#official-mouse-layer').addEventListener('pointermove', event => { window.nativePointerMoves++; event.stopPropagation(); });
+Object.defineProperty(officialVideo, 'paused', {get: () => fixturePaused});
+officialVideo.play = async () => { window.fixturePaused = false; window.playCount++; officialVideo.dispatchEvent(new Event('play')); };
+officialVideo.pause = () => { window.fixturePaused = true; window.pauseCount++; officialVideo.dispatchEvent(new Event('pause')); };
+document.querySelector('#msg_send_bt').addEventListener('click', () => {
+  const input = document.querySelector('#pub_msg_input');
+  window.sentMessages.push(input.value);
+  input.value = '';
+  input.dispatchEvent(new Event('input', {bubbles:true}));
+});
+</script>

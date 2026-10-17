@@ -14,8 +14,8 @@ const base = 'https://raw.githubusercontent.com/CamarilloG/douyu-cleaner/main';
 const huya = `// ==UserScript==
 // @name         虎牙直播间纯净增强
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      0.1.0
-// @description  保留官方播放器和弹幕，原生弹幕悬停复读 +1、可选纯净布局与一键恢复。
+// @version      0.2.0
+// @description  重建极简播放器界面与评论区，保留官方播放及弹幕收发，原生弹幕悬停 +1。
 // @match        https://www.huya.com/*
 // @run-at       document-idle
 // @noframes
@@ -27,6 +27,8 @@ const huya = `// ==UserScript==
 // ==/UserScript==
 
 ${shared}
+
+${read('src/huya-chat.js')}
 
 ${read('src/huya.js')}`;
 fs.writeFileSync(path.join(root, 'douyu-cleaner.user.js'), douyu);
