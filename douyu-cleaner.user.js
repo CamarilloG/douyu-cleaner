@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         斗鱼直播间极简版
 // @namespace    https://github.com/CamarilloG/douyu-cleaner
-// @version      2.18.0
+// @version      2.18.1
 // @description  原生弹幕优先：悬停视频飞行弹幕显示 +1 复读，保留官方渲染与发送；极简观看、画质选择、低缓冲追帧，自建弹幕仅作为可选备用。
 // @author       CamarilloG
 // @match        *://www.douyu.com/*
@@ -674,8 +674,6 @@
         #dy-shell-controlbar, #dy-shell-controlbar *,
         #dy-chat-expand-btn,
         #dy-plugin-panel, #dy-plugin-panel *{ cursor: default; }
-        /* 原生模式给官方底部控制栏留出操作空间。 */
-        #dy-shell[data-danmu-mode="native"] #dy-shell-controlbar{ bottom:54px; }
         #dy-shell-controlbar .dy-btn{
             background: none; border: none; color: #e6e6e6;
             font-size: 18px; line-height: 1;
@@ -2335,7 +2333,7 @@
         setupNativeHeader();      // v2.14: 测量并接管原生顶栏
         startLatencyChase();
         releaseFlight();
-        console.log('[Douyu Cleaner] v2.18.0 shell mounted ✓');
+        console.log('[Douyu Cleaner] v2.18.1 shell mounted ✓');
         // 诊断：mount 完成后 2s 报告弹幕容器状态，方便排查"弹幕没显示"
         setTimeout(() => {
             if (epoch !== roomEpoch || room !== location.pathname) return;
